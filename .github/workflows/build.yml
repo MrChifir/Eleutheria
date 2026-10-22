@@ -1,0 +1,64 @@
+# Сборка и проверка на трёх ОС. Файл не запускался автором: первый прогон нужно смотреть глазами.
+name: build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-and-bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, name: linux-x64 }
+          - { os: macos-14, name: macos-arm64 }
+          - { os: windows-2022, name: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Системные пакеты (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+
+      - name: Тесты Rust (без GUI)
+        run: cargo test --workspace --exclude eleutheria-gui
+
+      - name: Тесты интерфейса (Node + jsdom)
+        working-directory: crates/eleutheria-gui
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+
+      - name: Проверка сборки GUI
+        run: cargo check -p eleutheria-gui
+
+      - name: Sidecar-бинарники (CLI и helper)
+        run: scripts/prepare-sidecars.sh
+
+      - name: Установщик
+        working-directory: crates/eleutheria-gui
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build --config tauri.bundle.conf.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eleutheria-${{ matrix.name }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.dmg
+            target/release/bundle/**/*.msi
+            target/release/bundle/**/*-setup.exe
+          if-no-files-found: warn

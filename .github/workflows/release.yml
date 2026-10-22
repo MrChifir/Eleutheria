@@ -1,0 +1,151 @@
+# Релиз: подписанные установщики, updater-артефакты и latest.json в черновике GitHub Release.
+# Файл не запускался автором: первый прогон нужно смотреть глазами (на тестовом теге, например v0.0.1-test).
+#
+# Нужные секреты репозитория:
+#   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  ключ подписи обновлений (`cargo tauri signer generate`).
+#     Публичный ключ вставляется в plugins.updater.pubkey. ПОТЕРЯ ПРИВАТНОГО КЛЮЧА = обновить установленные копии
+#     нельзя, только переустановка: держи офлайн-бэкап.
+#   (подпись установщиков, необязательно, но без неё SmartScreen и Gatekeeper будут пугать пользователей;
+#    переменная репозитория REQUIRE_SIGNING=true запрещает релиз без подписи, см. scripts/check-signing.sh)
+#     Windows: WINDOWS_CERTIFICATE (base64 от .pfx), WINDOWS_CERTIFICATE_PASSWORD
+#     macOS:   APPLE_CERTIFICATE (base64 от .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+#              APPLE_ID, APPLE_PASSWORD (пароль приложения), APPLE_TEAM_ID
+#   (зеркало, необязательно) MIRROR_S3_ENDPOINT, MIRROR_S3_BUCKET, MIRROR_BASE_URL, MIRROR_ACCESS_KEY_ID, MIRROR_SECRET_ACCESS_KEY
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Заглушки и версии
+        run: scripts/check-release.sh "${GITHUB_REF_NAME}"
+      - name: Тесты скрипта зеркала
+        run: python3 -m unittest -v scripts/test_mirror_manifest.py
+      - name: Настройки подписи установщиков
+        env:
+          REQUIRE_SIGNING: ${{ vars.REQUIRE_SIGNING }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: scripts/check-signing.sh
+      - name: Тесты скриптов подписи
+        run: scripts/test_signing.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Откат приложения (сквозной тест со сторожем)
+        run: scripts/e2e-rollback.sh
+
+  build:
+    needs: guard
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, name: linux-x64 }
+          - { os: macos-14, name: macos-arm64 }
+          - { os: windows-2022, name: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      # секреты нельзя читать в `if` шага напрямую, поэтому признаки наличия лежат в env задачи
+      HAS_WIN_CERT: ${{ secrets.WINDOWS_CERTIFICATE != '' }}
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Системные пакеты (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - name: Sidecar-бинарники (CLI и helper)
+        run: scripts/prepare-sidecars.sh
+      - name: Подпись Windows (сертификат в хранилище runner'а)
+        id: winsign
+        if: runner.os == 'Windows' && env.HAS_WIN_CERT == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'sign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          python scripts/windows-sign-config.py --thumbprint $cert.Thumbprint -o crates/eleutheria-gui/tauri.windows-sign.conf.json
+          "extra=--config tauri.windows-sign.conf.json" >> $env:GITHUB_OUTPUT
+      - name: Подпись и нотаризация macOS
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # переменные попадают в окружение следующих шагов только при полном наборе: пустое значение
+        # APPLE_CERTIFICATE tauri принял бы за настоящий сертификат и упал бы
+        run: |
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!v}" ] || { echo "::error::нет $v"; exit 1; }
+            echo "::add-mask::${!v}"
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: crates/eleutheria-gui
+          tauriScript: cargo tauri
+          tagName: ${{ github.ref_name }}
+          releaseName: Eleutheria ${{ github.ref_name }}
+          # черновик: latest.json не виден пользователям, пока ты не нажмёшь «Publish» после проверки
+          releaseDraft: true
+          includeUpdaterJson: true
+          args: --config tauri.bundle.conf.json --config tauri.updater.conf.json ${{ steps.winsign.outputs.extra }}
+
+  mirror:
+    # зеркало для пользователей, у которых GitHub недоступен; пропускается, если секреты не заданы
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      HAS_MIRROR: ${{ secrets.MIRROR_S3_BUCKET != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Скачать артефакты релиза
+        if: env.HAS_MIRROR == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${GITHUB_REF_NAME}" --dir dl --pattern 'latest.json' --pattern '*.sig' --pattern '*.AppImage' --pattern '*.exe' --pattern '*.msi' --pattern '*.tar.gz' --pattern '*.zip'
+      - name: Переписать манифест и выложить на зеркало
+        if: env.HAS_MIRROR == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MIRROR_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MIRROR_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          base="${{ secrets.MIRROR_BASE_URL }}/${GITHUB_REF_NAME}"
+          mkdir -p out
+          python3 scripts/mirror-manifest.py dl/latest.json --base "$base" -o out/latest.json > files.txt
+          while read -r f; do aws s3 cp "dl/$f" "s3://${{ secrets.MIRROR_S3_BUCKET }}/${GITHUB_REF_NAME}/$f" --endpoint-url "${{ secrets.MIRROR_S3_ENDPOINT }}"; done < files.txt
+          # манифест кладём последним: пока он не обновился, пользователи не видят релиз без файлов
+          aws s3 cp out/latest.json "s3://${{ secrets.MIRROR_S3_BUCKET }}/latest.json" --endpoint-url "${{ secrets.MIRROR_S3_ENDPOINT }}"

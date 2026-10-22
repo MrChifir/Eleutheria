@@ -1,0 +1,18 @@
+[package]
+name = "eleutheria-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Сервисный слой клиента для GUI: DTO и операции поверх eleutheria-core (без зависимости от Tauri)"
+
+[dependencies]
+eleutheria-core = { path = "../eleutheria-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time", "macros", "process"] }
+minisign-verify = "0.3"
+base64 = "0.22"
+
+[dev-dependencies]
+minisign = "0.7"
