@@ -256,11 +256,15 @@ where
 mod tests {
     use super::*;
 
+    /// Сервер разрешает uid текущего пользователя (владельца сокета). Тесты не должны зависеть от того,
+    /// root ли запускает их: на CI они идут от обычного пользователя.
     async fn start_server(name: &str) -> PathBuf {
+        use std::os::unix::fs::MetadataExt;
         let path = std::env::temp_dir().join(format!("el-ipc-{name}-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path).unwrap();
-        tokio::spawn(serve(l, 0, |req| async move {
+        let uid = std::fs::metadata(&path).unwrap().uid();
+        tokio::spawn(serve(l, uid, |req| async move {
             match req {
                 Request::Ping => Response::Pong { version: "t".into() },
                 _ => Response::Error { message: "не в тесте".into() },
