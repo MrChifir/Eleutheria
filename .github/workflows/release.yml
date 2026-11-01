@@ -1,4 +1,5 @@
 # Релиз: подписанные установщики, updater-артефакты и latest.json в черновике GitHub Release.
+#
 # Нужные секреты репозитория:
 #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  ключ подписи обновлений (`cargo tauri signer generate`).
 #     Публичный ключ вставляется в plugins.updater.pubkey. ПОТЕРЯ ПРИВАТНОГО КЛЮЧА = обновить установленные копии

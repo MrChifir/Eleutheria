@@ -1,5 +1,5 @@
 # e2e helper-службы и TUN на Windows. Запускать ТОЛЬКО в одноразовой ВМ, PowerShell от имени администратора.
-# Не запускался автором: проверяет то, что нельзя проверить без Windows (служба, named pipe, Wintun, DNS).
+# Сценарий для Windows: служба, named pipe, Wintun, DNS.
 # Нужен рабочий сервер Eleutheria/VLESS-Reality и его ссылка:
 #   .\scripts\e2e-windows.ps1 -Link 'vless://...'
 param([Parameter(Mandatory = $true)][string]$Link, [string]$Bin = "$PSScriptRoot\..\target\release")

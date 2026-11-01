@@ -137,7 +137,7 @@ check "ошибка сообщена, прежний конфиг восстан
 check "bob не появился" '! elq user list $H $C | grep -q bob'
 check "VPN после отката работает" '[ "$(tunnel default)" = "200" ]'
 
-echo; echo "== S7: обновление сервера (M2.5): статус, откат бинарника при сбое, успешное обновление"
+echo; echo "== S7: обновление сервера: статус, откат бинарника при сбое, успешное обновление"
 REAL=/tmp/sb-real; SB=/usr/local/bin/sing-box
 setstate() { python3 - "$1" <<'PYIN'
 import json,sys
@@ -231,7 +231,7 @@ elq remove-server dead >/dev/null; elq remove-server 127.0.0.1 >/dev/null
 check "без серверов connect объясняет, что делать" 'elq connect --port $CP --clash-port $CL | grep -q "нет серверов"'
 for f in /tmp/sub.pid /tmp/https2.pid; do [ -f $f ] && kill "$(cat $f)" 2>/dev/null; done
 
-echo; echo "== S8: дополнительные протоколы (M3): Hysteria2, TUIC, SS-2022 на сервере, включение и выключение"
+echo; echo "== S8: дополнительные протоколы: Hysteria2, TUIC, SS-2022 на сервере, включение и выключение"
 setsid python3 "$(dirname "$0")/https_target.py" $TARGET 8443 /tmp/c2.pem /tmp/k2.pem >/tmp/https3.log 2>&1 < /dev/null & echo $! > /tmp/https3.pid
 sleep 1
 st_get() { python3 -c "import json,sys; s=json.load(open('/etc/eleutheria/state.json')); print(eval(sys.argv[1]))" "$1"; }
@@ -281,7 +281,7 @@ for n in "127.0.0.1 hysteria2" "127.0.0.1 tuic" "127.0.0.1 ss2022" 127.0.0.1; do
 [ -f /tmp/https3.pid ] && kill "$(cat /tmp/https3.pid)" 2>/dev/null
 
 
-echo; echo "== S-fleet: парк серверов (M5.2): общий пользователь, единая подписка, обновить все"
+echo; echo "== S-fleet: парк серверов: общий пользователь, единая подписка, обновить все"
 FC="--password-env ELEUTHERIA_PW -y"; grep -q 203.0.113.50:8000 <(pgrep -af http.server) || { setsid python3 -m http.server 8000 --bind 203.0.113.50 --directory /tmp >/tmp/http3.log 2>&1 < /dev/null & echo $! > /tmp/http3.pid; sleep 0.5; }
 rm -f /tmp/elcfg/fleet.json
 check "парк пуст" 'elq fleet list | grep -q "Парк пуст"'
@@ -305,7 +305,7 @@ check "fleet remove убирает сервер, на самом сервере 
 check "fleet remove неизвестного -> ошибка" '! elq fleet remove 9.9.9.9 >/dev/null 2>&1'
 
 
-echo; echo "== S-exit: внешний exit (M5.3): явное согласие, цепочка через свой сервер"
+echo; echo "== S-exit: внешний exit: явное согласие, цепочка через свой сервер"
 check "exit add без согласия отклонён и ничего не записал" '! elq exit add ex socks5://u:p@198.51.100.7:1080 --via t-alice 2>&1 | grep -q Добавлен && elq exit add ex socks5://u:p@198.51.100.7:1080 --via t-alice 2>&1 | grep -q accept-exit-risk && elq exit list | grep -q "Внешних exit нет"'
 check "exit add: входного сервера нет в списке -> отказ" '! elq exit add ex socks5://u:p@198.51.100.7:1080 --via nope --accept-exit-risk >/dev/null 2>&1'
 check "exit add: имя вместо IP -> отказ" '! elq exit add ex socks5://proxy.example.com:1080 --via t-alice --accept-exit-risk >/dev/null 2>&1'
