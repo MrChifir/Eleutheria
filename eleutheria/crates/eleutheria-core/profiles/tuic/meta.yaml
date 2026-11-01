@@ -1,0 +1,8 @@
+schema: 1
+id: tuic
+name: TUIC v5
+description: QUIC (UDP), другой отпечаток, чем у Hysteria2. Самоподписанный сертификат, клиент закрепляет ключ.
+transport: udp
+default_port: 8443
+needs_cert: true
+password: hex32

@@ -1,7 +1,0 @@
-{
-  "name": "eleutheria-gui-tests",
-  "private": true,
-  "type": "module",
-  "scripts": { "test": "node --test frontend/model.test.js frontend/servermodel.test.js frontend/updatemodel.test.js tests/ui.test.mjs" },
-  "devDependencies": { "jsdom": "^30.1.3" }
-}

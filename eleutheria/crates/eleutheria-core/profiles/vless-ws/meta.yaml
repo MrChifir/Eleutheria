@@ -1,0 +1,8 @@
+schema: 1
+id: vless-ws
+name: VLESS + WebSocket (через CDN)
+description: Трафик идёт через CDN (Cloudflare), IP сервера не виден ни клиенту, ни DPI. Нужен свой домен, который проксируется CDN (оранжевое облако), режим TLS «Full». Самоподписанный сертификат сервера принимается.
+transport: tcp
+default_port: 8443
+needs_cert: true
+password: hex32

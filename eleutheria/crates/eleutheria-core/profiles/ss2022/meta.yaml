@@ -1,0 +1,11 @@
+schema: 1
+id: ss2022
+name: Shadowsocks 2022
+description: Shadowsocks с современным шифрованием (TCP и UDP), без TLS и сертификатов. Запасной вариант.
+transport: both
+default_port: 8388
+needs_cert: false
+password: base64-16
+server_key: base64-16
+params:
+  method: 2022-blake3-aes-128-gcm
