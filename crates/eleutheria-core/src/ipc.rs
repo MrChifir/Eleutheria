@@ -275,7 +275,9 @@ mod tests {
         let path = std::env::temp_dir().join(format!("el-ipc-{name}-{}.sock", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path).unwrap();
-        tokio::spawn(serve(l, 0, |req| async move {
+        // Сокет принадлежит текущему пользователю: разрешаем именно его uid, а не только root.
+        let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&path).unwrap());
+        tokio::spawn(serve(l, uid, |req| async move {
             match req {
                 Request::Ping => Response::Pong { version: "t".into() },
                 _ => Response::Error { message: "не в тесте".into() },
