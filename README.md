@@ -12,8 +12,6 @@
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)
 ![sing-box](https://img.shields.io/badge/sing--box-1.14-8b5cf6)
-![Linux](https://img.shields.io/badge/Linux-проверен-2ea44f?logo=linux&logoColor=white)
-![Windows и macOS](https://img.shields.io/badge/Windows%20%7C%20macOS-не%20проверены-lightgrey)
 
 <br>
 
@@ -51,12 +49,6 @@ Eleutheria — open-source инструмент для собственного 
 
 Пользоваться можно двумя способами: **графическим приложением** (Tauri 2, раздел ниже) или **командной строкой**
 (`eleutheria …`). Оба работают поверх одной и той же библиотеки, поэтому результат одинаков.
-
-| Платформа | Статус |
-| --- | --- |
-| Linux | проверен (локальный прокси и TUN) |
-| Windows | код написан, на реальной машине не запускался |
-| macOS | код написан, на реальной машине не запускался |
 
 ## Возможности
 
@@ -338,8 +330,6 @@ eleutheria helper uninstall
 
 - Сервер: только root, только Ubuntu и Debian. sing-box работает от root.
 - Основной протокол VLESS + Reality. Запасные (Hysteria2, TUIC v5, Shadowsocks 2022, VLESS + WebSocket через CDN) подключаются отдельно и проверены меньше.
-- Клиент на Linux проверен (прокси и TUN). macOS и Windows написаны, но не запускались и не собирались
-  на реальной машине. Первый шаг на Windows: `cargo build --release`, затем `scripts/e2e-windows.ps1`.
 - TUN проверен в netns на ядре без IPv6. Путь с включённым IPv6 не проверялся, на macOS и Windows TUN всегда создаётся с IPv6.
 - Нет kill-switch: если helper или sing-box остановлены, трафик идёт напрямую. Так сделано намеренно,
   чтобы при аварии не оставить систему без сети.
@@ -360,7 +350,6 @@ eleutheria helper uninstall
 
 Ближайшие задачи:
 
-- Проверка GUI и установщиков на живых системах Linux, Windows и macOS.
 - Протоколы помимо VLESS + Reality (vmess, trojan и др.).
 - Первый публичный релиз с подписью обновлений и проверкой на тестовом теге.
 - Хранение SSH-ключа в keyring без файла.
@@ -426,4 +415,4 @@ eleutheria profile remove my-profile
 ответа `y` (или `--yes`) ничего не пишется. Профили лежат в `~/.config/eleutheria/profiles/<id>/` и проверяются
 заново при каждом чтении.
 
-Пока сторонние профили только хранятся и проверяются: выбрать их при установке сервера и в клиенте нельзя (M6.2).
+Пока сторонние профили только хранятся и проверяются: выбрать их при установке сервера и в клиенте нельзя.
