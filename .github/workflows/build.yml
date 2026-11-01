@@ -43,7 +43,7 @@ jobs:
         run: cargo check -p eleutheria-gui
 
       - name: Sidecar-бинарники (CLI и helper)
-        run: scripts/prepare-sidecars.sh
+        run: bash scripts/prepare-sidecars.sh
 
       - name: Установщик
         working-directory: crates/eleutheria-gui
