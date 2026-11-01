@@ -1,6 +1,4 @@
-# Релиз: подписанные установщики, updater-артефакты и latest.json в черновике GitHub Release.
-# Файл не запускался автором: первый прогон нужно смотреть глазами (на тестовом теге, например v0.0.1-test).
-#
+# Релиз: подписанные установщики, updater-артефакты и latest.json в черновике GitHub Release..
 # Нужные секреты репозитория:
 #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  ключ подписи обновлений (`cargo tauri signer generate`).
 #     Публичный ключ вставляется в plugins.updater.pubkey. ПОТЕРЯ ПРИВАТНОГО КЛЮЧА = обновить установленные копии
@@ -55,7 +53,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-24.04, name: linux-x64 }
-          - { os: macos-14, name: macos-arm64 }
+          - { os: macos-15, name: macos-arm64 }
           - { os: windows-2022, name: windows-x64 }
     runs-on: ${{ matrix.os }}
     env:
