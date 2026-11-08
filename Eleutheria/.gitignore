@@ -1,0 +1,6 @@
+*.tar.gz
+crates/eleutheria-gui/binaries/
+crates/eleutheria-gui/gen/
+crates/eleutheria-gui/node_modules/
+node_modules/
+target/
