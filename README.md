@@ -1,519 +1,529 @@
 <div align="center">
 
+**English** | [Русский](README.ru.md)
+
 <img src="docs/logo.png" alt="Eleutheria" width="360">
 
-### Свой VPN на своём сервере. В два клика.
+### Your own VPN on your own server. In two clicks.
 
-Установка сервера по SSH, обход блокировок на VLESS + Reality, клиент с системным туннелем,
-авто-выбором сервера и проверкой категорий трафика. Всё в одном приложении, без сторонних сервисов.
+Server setup over SSH, censorship circumvention with VLESS + Reality, a client with a system-wide tunnel,
+automatic server selection and per-category traffic checks. All in one app, no third-party services.
 
-![Версия](https://img.shields.io/badge/версия-1.0.0-3b82f6)
-![Лицензия](https://img.shields.io/badge/лицензия-GPL--3.0--or--later-informational)
+![Version](https://img.shields.io/badge/version-1.0.0-3b82f6)
+![License](https://img.shields.io/badge/license-GPL--3.0--or--later-informational)
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)
 ![sing-box](https://img.shields.io/badge/sing--box-1.14-8b5cf6)
 
+**[⬇ Download the latest release](https://github.com/MrChifir/Eleutheria/releases/latest)**
+
 <br>
 
-<img src="docs/screenshots/home-connected.png" alt="Главный экран Eleutheria: подключение через системный VPN" width="860">
+<img src="docs/screenshots/home-connected.png" alt="Eleutheria main screen: connected through the system VPN" width="860">
 
 </div>
 
+> The screenshots show the Russian-language interface.
+
 ---
 
-## Содержание
+## Table of contents
 
-- [Что это](#что-это)
-- [Возможности](#возможности)
-- [Знакомство с приложением](#знакомство-с-приложением)
-  - [Гид и тур](#гид-и-тур-приложение-объясняет-себя-само)
-- [Как это работает](#как-это-работает)
-- [Быстрый старт](#быстрый-старт)
-- [Сборка](#сборка)
-- [Нет сервера?](#нет-сервера)
-- [Установка сервера (CLI)](#установка-сервера)
-- [Клиент (CLI)](#клиент)
-- [Системный VPN (TUN)](#системный-vpn-tun)
-- [Обновления и выпуск релиза](#обновления)
+- [What it is](#what-it-is)
+- [Features](#features)
+- [Tour of the app](#tour-of-the-app)
+  - [Guide and tour](#guide-and-tour-the-app-explains-itself)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Building](#building)
+- [No server yet?](#no-server-yet)
+- [Server installation (CLI)](#server-installation)
+- [Client (CLI)](#client)
+- [System VPN (TUN)](#system-vpn-tun)
+- [Updates and releasing](#updates)
 - [GUI](#gui)
-- [Тесты и CI](#тесты-и-ci)
-- [Ограничения](#ограничения)
-- [Планы](#планы)
-- [Расширенные возможности](#запасные-протоколы)
+- [Tests and CI](#tests-and-ci)
+- [Limitations](#limitations)
+- [Roadmap](#roadmap)
+- [Advanced features](#fallback-protocols)
 
-## Что это
+## What it is
 
-Eleutheria — open-source инструмент для собственного VPN. Ты арендуешь сервер, Eleutheria подключается к нему
-по SSH, ставит sing-box, настраивает обход блокировок по протоколу VLESS + Reality и выдаёт ссылку и QR-код
-для клиента. Клиент работает как локальный прокси или как системный VPN через TUN.
+Eleutheria is an open-source tool for running your own VPN. You rent a server, Eleutheria connects to it over SSH,
+installs sing-box, configures censorship circumvention with the VLESS + Reality protocol and gives you a link and a
+QR code for the client. The client works either as a local proxy or as a system-wide VPN through TUN.
 
-Пользоваться можно двумя способами: **графическим приложением** (Tauri 2, раздел ниже) или **командной строкой**
-(`eleutheria …`). Оба работают поверх одной и той же библиотеки, поэтому результат одинаков.
+There are two ways to use it: the **graphical app** (Tauri 2, described below) or the **command line**
+(`eleutheria …`). Both are built on the same library, so the result is identical.
 
-Работает на Linux и Windows. macOS собирается в CI, но на реальной машине не проверялся.
+Works on Linux and Windows. macOS builds in CI but has not been tested on a real machine.
 
-## Возможности
+## Features
 
 | | |
 | --- | --- |
-| 🚀 **Установка сервера в одно действие** | Проверка ОС, установка sing-box с проверкой SHA256, ключи Reality, systemd-служба. |
-| 🔒 **Укрепление сервера** | Вход по SSH-ключу вместо пароля, BBR, ufw. Каждый шаг откатывается при сбое. |
-| 👥 **Пользователи** | У каждого свой UUID, своя ссылка и QR-код. |
-| 🧭 **Умный клиент** | Импорт ссылки или подписки, авто-выбор сервера по задержке, переключение при отказе. |
-| 🛡️ **Системный VPN (TUN)** | Через helper-службу с правами root, с защитой DNS от утечек (fake-ip). |
-| 🎯 **Категории трафика** | Видео, мессенджеры, соцсети, ИИ-сервисы проверяются отдельно и могут уходить другим путём. |
-| 🇷🇺 **Российские ресурсы напрямую** | Три режима: всё через VPN, только `.ru/.su/.рф`, либо наборы правил по сервисам и IP. |
-| 🔁 **Запасные протоколы** | Hysteria2, TUIC v5, Shadowsocks 2022, VLESS + WebSocket через CDN. |
-| 🧩 **Сторонние профили** | Свой протокол папкой из трёх файлов, со строгой проверкой, diff и подтверждением. |
-| 🌐 **Парк серверов** | Несколько VPS, один пользователь, одна подписка. |
-| ⛓️ **Внешний exit** | Чужой SOCKS5-прокси цепочкой через свой сервер, только для отдельных категорий и только с явного согласия. |
-| ⬆️ **Обновления** | Обновление sing-box на сервере и самого приложения: проверка подписи, сторож отката. |
-| 🔑 **Секреты** | Системный keyring, а без него файлы с правами 600. |
+| 🚀 **One-step server setup** | OS check, sing-box installed with SHA256 verification, Reality keys, systemd service. |
+| 🔒 **Server hardening** | SSH key login instead of a password, BBR, ufw. Every step is rolled back on failure. |
+| 👥 **Users** | Each user gets their own UUID, link and QR code. |
+| 🧭 **Smart client** | Import a link or a subscription, automatic server selection by latency, failover. |
+| 🛡️ **System VPN (TUN)** | Through a root helper service, with DNS leak protection (fake-ip). |
+| 🎯 **Traffic categories** | Video, messengers, social networks and AI services are probed separately and can take a different route. |
+| 🇷🇺 **Russian resources direct** | Three modes: everything through the VPN, only `.ru/.su/.рф`, or rule sets for services and IPs. |
+| 🔁 **Fallback protocols** | Hysteria2, TUIC v5, Shadowsocks 2022, VLESS + WebSocket through a CDN. |
+| 🧩 **Third-party profiles** | Add your own protocol as a three-file folder, with strict validation, a diff and a confirmation prompt. |
+| 🌐 **Server fleet** | Several VPS, one user, one subscription. |
+| ⛓️ **External exit** | Chain someone else's SOCKS5 proxy through your server, only for selected categories and only with explicit consent. |
+| ⬆️ **Updates** | Update sing-box on the server and the app itself: signature verification, rollback watchdog. |
+| 🔑 **Secrets** | System keyring, or files with 600 permissions when there is none. |
 
-## Знакомство с приложением
+## Tour of the app
 
-Интерфейс разделён на четыре раздела: **Главная**, **Сервер**, **Обновления** и **Гид**. Слева всегда виден статус подключения.
+The interface has four sections: **Home**, **Server**, **Updates** and **Guide**. The connection status is always visible on the left.
 
-> Скриншоты сняты с настоящего фронтенда приложения на тестовых данных: адреса из диапазонов документации, вымышленные серверы, подставной бэкенд.
+> Screenshots were taken from the real app frontend with test data: addresses from documentation ranges, made-up servers, a mock backend.
 
-### Главная: подключение одной кнопкой
+### Home: connect with one button
 
-<img src="docs/screenshots/home-disconnected.png" alt="Главный экран, VPN отключён" width="860">
+<img src="docs/screenshots/home-disconnected.png" alt="Home screen, VPN disconnected" width="860">
 
-Здесь живёт всё, что нужно в повседневной работе:
+Everything you need for daily use lives here:
 
-- **Большая кнопка «Подключить / Отключить»** и текущий статус. Для TUN показывается pid процесса.
-- **Режим:** системный VPN (весь трафик) или локальный прокси `127.0.0.1:7890`. Если helper ещё не установлен,
-  TUN недоступен, а кнопка установки helper появляется прямо в карточке.
-- **Сервер:** «Авто (по задержке)» или конкретный. При нескольких серверах клиент сам переключается при отказе.
-- **Российские ресурсы:** «Всё через VPN», «Напрямую: .ru, .su, .рф и локальные» (по умолчанию) или с наборами правил.
-- **Серверы:** список импортированных серверов и кнопка «Проверить задержки».
-- **Добавить сервер:** вставь ссылку (`vless://`, `hysteria2://`, `tuic://`, `ss://`) или URL подписки.
+- **A big "Connect / Disconnect" button** and the current status. In TUN mode the process pid is shown.
+- **Mode:** system VPN (all traffic) or a local proxy at `127.0.0.1:7890`. If the helper is not installed yet,
+  TUN is unavailable and an install-helper button appears right in the card.
+- **Server:** "Auto (by latency)" or a specific one. With several servers the client fails over on its own.
+- **Russian resources:** "Everything through the VPN", "Direct: .ru, .su, .рф and local" (default) or with rule sets.
+- **Servers:** the list of imported servers and a "Check latency" button.
+- **Add a server:** paste a link (`vless://`, `hysteria2://`, `tuic://`, `ss://`) or a subscription URL.
 
-### Подключено: категории трафика под контролем
+### Connected: traffic categories under control
 
-<img src="docs/screenshots/home-connected.png" alt="Главный экран, VPN подключён, категории трафика" width="860">
+<img src="docs/screenshots/home-connected.png" alt="Home screen, VPN connected, traffic categories" width="860">
 
-Когда туннель поднят, карточка «Категории трафика» показывает живую проверку:
+When the tunnel is up, the "Traffic categories" card shows live checks:
 
-- строка **«Туннель»** — общая работоспособность соединения и задержка;
-- по строке на категорию (**Видео, Мессенджеры, Соцсети, ИИ-сервисы**) с цветным индикатором и задержкой;
-- тумблер у каждой категории. Выключенная категория идёт общим маршрутом, изменение применяется при следующем подключении;
-- журнал событий внизу: что и когда переключилось.
+- a **"Tunnel"** row with overall connection health and latency;
+- one row per category (**Video, Messengers, Social networks, AI services**) with a colored indicator and latency;
+- a toggle for each category. A disabled category takes the common route; the change applies on the next connection;
+- an event log at the bottom: what switched and when.
 
-Если сайт не пускает выходной IP сервера, на другой путь уходит только эта категория, а не весь трафик.
+If a site refuses the server's exit IP, only that category moves to another path, not all of your traffic.
 
-### Сервер: установка VPN без терминала
+### Server: install a VPN without a terminal
 
-<img src="docs/screenshots/server.png" alt="Вкладка «Сервер»" width="860">
+<img src="docs/screenshots/server.png" alt="Server tab" width="860">
 
-Мастер установки в одном окне:
+A one-window setup wizard:
 
-1. **Нет сервера?** Быстрые ссылки на партнёрские хостинги (VDSina, Fornex, IHC, Justhost, Nodex).
-   Приложение открывает только адреса из встроенного списка.
-2. **Доступ к серверу:** адрес, пользователь и порт SSH, пароль или путь к ключу. Кнопка «Проверить сервер»
-   показывает fingerprint, который нужно сверить с данными хостера.
-3. **Установка VPN:** порт, сайт для маскировки (SNI), название профиля, первый пользователь. Флажки укрепления:
-   вход по ключу, BBR, ufw. Запасные протоколы включаются сразу при установке.
+1. **No server?** Quick links to partner hosting providers (VDSina, Fornex, IHC, Justhost, Nodex).
+   The app only opens addresses from the built-in list.
+2. **Server access:** address, SSH user and port, password or key path. The "Check server" button shows the
+   fingerprint that you should compare with the one from your hosting provider.
+3. **VPN installation:** port, masquerade site (SNI), profile name, first user. Hardening switches:
+   key login, BBR, ufw. Fallback protocols can be enabled right at install time.
 
-### Результат установки: ссылка и QR-код
+### Installation result: link and QR code
 
-<img src="docs/screenshots/server-provisioned.png" alt="Результат установки: отчёт, ссылка и QR-код" width="860">
+<img src="docs/screenshots/server-provisioned.png" alt="Installation result: report, link and QR code" width="860">
 
-После установки приложение показывает отчёт по каждому шагу, ссылку для клиента с кнопкой «Копировать» и QR-код
-для телефона. Ниже управление сервером: протоколы (включить и выключить на лету), пользователи
-(добавить, удалить, получить ссылку) и обновление sing-box.
+After installation the app shows a report for every step, the client link with a "Copy" button and a QR code
+for your phone. Below are server controls: protocols (switch on and off on the fly), users
+(add, remove, get a link) and the sing-box update.
 
-### Обновления: с подписью и без интернета до GitHub
+### Updates: signed, and usable without GitHub access
 
-<img src="docs/screenshots/updates.png" alt="Вкладка «Обновления»" width="860">
+<img src="docs/screenshots/updates.png" alt="Updates tab" width="860">
 
-Отдельная вкладка **«Обновления»**. Приложение проверяет новые версии раз в сутки и по кнопке. Скачанный файл
-проверяется по подписи до любых изменений в системе. Если GitHub и зеркало недоступны, файл обновления и `.sig`
-можно указать вручную. Если установлен устаревший helper, приложение подскажет его обновить.
+A dedicated **Updates** tab. The app checks for new versions once a day and on demand. The downloaded file is
+verified against its signature before any change is made to the system. If neither GitHub nor the mirror is reachable,
+you can pick the update file and its `.sig` manually. If an outdated helper is installed, the app suggests updating it.
 
-### Гид и тур: приложение объясняет себя само
+### Guide and tour: the app explains itself
 
-<img src="docs/screenshots/guide.png" alt="Раздел «Гид»: справка по приложению" width="860">
+<img src="docs/screenshots/guide.png" alt="Guide section: in-app help" width="860">
 
-В разделе **Гид** собрана справка: с чего начать, что делает каждый раздел, чем отличаются режимы подключения,
-как работают категории трафика, что важно для безопасности, и ответы на частые вопросы («Кнопка „Подключить“ неактивна»,
-«Ключ сервера изменился» и другие).
+The **Guide** section collects the help: where to start, what each section does, how the connection modes differ,
+how traffic categories work, what matters for security, and answers to common questions ("The Connect button is
+disabled", "The server key has changed" and others).
 
-<img src="docs/screenshots/tour.png" alt="Пошаговый тур: подсветка категорий трафика" width="860">
+<img src="docs/screenshots/tour.png" alt="Step-by-step tour: traffic categories highlighted" width="860">
 
-Кнопка **«Пройти тур»** запускает интерактивную экскурсию из 17 шагов: приложение само переключает разделы,
-подсвечивает нужный блок и коротко объясняет, что он делает. Управлять туром можно кнопками или клавишами
-`←` `→`, закрыть его можно в любой момент (`Esc`). При первом запуске, пока нет ни одного сервера, тур предлагается автоматически.
+The **"Take the tour"** button starts an interactive 17-step walkthrough: the app switches sections by itself,
+highlights the relevant block and briefly explains what it does. Control the tour with the buttons or the `←` `→`
+keys, and close it at any moment (`Esc`). On first launch, while there are no servers yet, the tour is offered automatically.
 
-## Как это работает
+## How it works
 
 ```mermaid
 flowchart LR
-    subgraph PC["Твой компьютер"]
+    subgraph PC["Your computer"]
         GUI["Eleutheria<br/>GUI / CLI"] --> CORE["eleutheria-core"]
-        CORE -->|"UNIX-сокет / named pipe"| HELPER["helper (root)"]
+        CORE -->|"UNIX socket / named pipe"| HELPER["helper (root)"]
         HELPER --> SB1["sing-box<br/>TUN + fake-ip DNS"]
-        CORE -.->|"режим прокси"| SB2["sing-box<br/>127.0.0.1:7890"]
+        CORE -.->|"proxy mode"| SB2["sing-box<br/>127.0.0.1:7890"]
     end
-    CORE -->|"SSH: установка и управление"| VPS
-    SB1 ==>|"VLESS + Reality"| VPS["Твой VPS<br/>sing-box"]
+    CORE -->|"SSH: install and manage"| VPS
+    SB1 ==>|"VLESS + Reality"| VPS["Your VPS<br/>sing-box"]
     SB2 ==>|"VLESS + Reality"| VPS
-    VPS --> NET(("Интернет"))
+    VPS --> NET(("Internet"))
 ```
 
-Состав проекта:
+Project layout:
 
-| Крейт | Назначение |
+| Crate | Purpose |
 | --- | --- |
-| `eleutheria-core` | Ядро: установка сервера, SSH, укрепление, пользователи, профили протоколов (встроенные и сторонние), клиентский конфиг, prober и watch, парк серверов, хранилище секретов. |
-| `eleutheria-cli` | Консольный интерфейс (`eleutheria …`). |
-| `eleutheria-helper` | Служба с правами root для TUN: принимает только данные серверов и сама собирает конфиг. |
-| `eleutheria-app` | Сервисный слой для графического интерфейса: обновления и откат, партнёры, повышение прав, мастер сервера. |
-| `eleutheria-gui` | Оболочка Tauri 2 и статический фронтенд без сборщика. |
+| `eleutheria-core` | Core: server installation, SSH, hardening, users, protocol profiles (built-in and third-party), client config, prober and watch, server fleet, secret storage. |
+| `eleutheria-cli` | Command-line interface (`eleutheria …`). |
+| `eleutheria-helper` | Root service for TUN: accepts only server data and builds the config itself. |
+| `eleutheria-app` | Service layer for the GUI: updates and rollback, partners, privilege elevation, server wizard. |
+| `eleutheria-gui` | Tauri 2 shell and a static frontend with no bundler. |
 
-В установщик GUI входят как sidecar-бинарники `eleutheria` (CLI) и `eleutheria-helper`.
+The GUI installer ships the `eleutheria` (CLI) and `eleutheria-helper` binaries as sidecars.
 
-## Быстрый старт
+## Quick start
 
-**С графическим приложением**
+**With the graphical app**
 
-1. Открой вкладку **Сервер**, введи адрес VPS и данные SSH, нажми «Проверить сервер», сверь fingerprint.
-2. Нажми **«Установить»**. Сервер появится в списке на главной сам.
-3. На главной нажми **«Подключить»**. Для режима «Системный VPN» один раз установи helper.
-4. Нужен доступ для телефона или друга: скопируй ссылку или покажи QR-код из результата установки.
+0. Download the app from [Releases](https://github.com/MrChifir/Eleutheria/releases/latest).
+1. Open the **Server** tab, enter the VPS address and SSH details, click "Check server" and compare the fingerprint.
+2. Click **"Install"**. The server appears in the list on the Home screen by itself.
+3. On Home, click **"Connect"**. For "System VPN" mode, install the helper once.
+4. Need access for a phone or a friend: copy the link or show the QR code from the installation result.
 
-**Из командной строки**
+**From the command line**
 
 ```
-eleutheria provision <IP>          # установить VPN на сервер, получить ссылку и QR
-eleutheria connect                 # локальный прокси 127.0.0.1:7890
-sudo eleutheria helper install     # один раз, для системного VPN
-eleutheria connect --tun           # весь трафик через VPN
+eleutheria provision <IP>          # install the VPN on a server, get a link and a QR code
+eleutheria connect                 # local proxy 127.0.0.1:7890
+sudo eleutheria helper install     # once, for the system VPN
+eleutheria connect --tun           # route all traffic through the VPN
 ```
 
-## Сборка
+## Building
 
-CLI и тесты:
+CLI and tests:
 
 ```
 cargo build --release                       # CLI: target/release/eleutheria
 cargo test --workspace --exclude eleutheria-gui
 ```
 
-Графическое приложение и установщики описаны в разделе [GUI](#gui).
+The graphical app and installers are described in the [GUI](#gui) section.
 
-## Нет сервера?
+## No server yet?
 
-На вкладке «Сервер» есть блок с партнёрскими хостингами. Можно арендовать VPS по ссылке из приложения, а затем ввести его адрес в форме. Если сервер уже есть, этот блок не нужен: установка VPN работает с любым VPS на Ubuntu или Debian.
+The "Server" tab has a block with partner hosting providers. You can rent a VPS through a link in the app and then enter
+its address in the form. If you already have a server, you do not need this block: the VPN installation works with any
+Ubuntu or Debian VPS.
 
-Список хостингов задаётся в `crates/eleutheria-app/src/partners.rs`. Приложение открывает только адреса из этого списка. Ссылки партнёрские: по ним автор проекта может получить вознаграждение.
+The list of providers is defined in `crates/eleutheria-app/src/partners.rs`. The app only opens addresses from this list.
+The links are affiliate links: the project author may receive a commission through them, and you get a 10% discount.
 
-## Установка сервера
+## Server installation
 
 ```
 eleutheria provision <IP> [--user root] [--ssh-port 22] [--key PATH | --password-env VAR]
                   [--port 443] [--sni www.microsoft.com] [--name Eleutheria] [--user-name default]
-                  [--protocols hysteria2,tuic,ss2022,vless-ws,<id профиля>|all] [--cdn-host cdn.example.com]
+                  [--protocols hysteria2,tuic,ss2022,vless-ws,<profile id>|all] [--cdn-host cdn.example.com]
                   [--no-harden-ssh] [--no-bbr] [--no-firewall] [--host-key SHA256:...] [-y]
 
-eleutheria user add|list|link|remove <IP> [<имя>]     # у каждого пользователя свой UUID и ссылка
-eleutheria server status|update <IP>                   # версии sing-box, обновление
-eleutheria server protocols <IP> [--enable …] [--disable …] [--cdn-host …]   # без флагов показывает состояние
-eleutheria forget <IP>                                 # забыть ключ сервера после его переустановки
-eleutheria secrets                                     # где лежат SSH-ключи и профили серверов
+eleutheria user add|list|link|remove <IP> [<name>]     # each user has their own UUID and link
+eleutheria server status|update <IP>                   # sing-box versions, update
+eleutheria server protocols <IP> [--enable …] [--disable …] [--cdn-host …]   # without flags shows the state
+eleutheria forget <IP>                                 # forget the server key after the server was reinstalled
+eleutheria secrets                                     # where SSH keys and server profiles are stored
 ```
 
-Пароль вводится один раз при первой установке (интерактивно или через `--password-env`). Дальше Eleutheria
-использует свой SSH-ключ, который создаёт и хранит сама. `eleutheria secrets` показывает, где что лежит и переносит
-старые файлы в защищённое хранилище. `ELEUTHERIA_SECRETS=keyring|file|auto` выбирает бэкенд хранения.
+The password is entered once, during the first installation (interactively or via `--password-env`). After that
+Eleutheria uses its own SSH key, which it creates and stores itself. `eleutheria secrets` shows what is stored where and
+migrates old files into protected storage. `ELEUTHERIA_SECRETS=keyring|file|auto` selects the storage backend.
 
-Повторный запуск идемпотентен: ключи, порт, SNI и пользователи берутся из `/etc/eleutheria/state.json`.
-Ключ сервера запоминается (pinning): если он изменился, подключение блокируется до `eleutheria forget`.
+Running it again is idempotent: keys, port, SNI and users are taken from `/etc/eleutheria/state.json`.
+The server key is pinned: if it changes, connecting is blocked until you run `eleutheria forget`.
 
-Что делает `provision`:
+What `provision` does:
 
-1. Проверяет ОС (Ubuntu/Debian, systemd, root) и занятость порта.
-2. Скачивает sing-box на твоей машине, сверяет SHA256 с закреплённым значением (сейчас sing-box 1.14.3) и заливает на сервер.
-3. Генерирует ключи Reality, проверяет конфиг (`sing-box check`) и запускает systemd-службу.
-   Если служба не поднялась, возвращается прежний конфиг.
-4. Укрепляет сервер. Вход по ключу проверяется новым подключением, и только после этого отключается пароль.
-   BBR включается, если ядро его поддерживает. ufw включается только если нет других публичных портов.
-5. Включает выбранные запасные протоколы (`--protocols`).
-6. Печатает ссылки для каждого пользователя и QR-код.
+1. Checks the OS (Ubuntu/Debian, systemd, root) and whether the port is free.
+2. Downloads sing-box on your machine, verifies its SHA256 against the pinned value (currently sing-box 1.14.3) and uploads it to the server.
+3. Generates Reality keys, validates the config (`sing-box check`) and starts the systemd service.
+   If the service does not come up, the previous config is restored.
+4. Hardens the server. Key login is verified with a new connection, and only then is the password disabled.
+   BBR is enabled if the kernel supports it. ufw is enabled only if there are no other public ports.
+5. Enables the selected fallback protocols (`--protocols`).
+6. Prints links for every user and a QR code.
 
-## Клиент
+## Client
 
 ```
-eleutheria import <ссылка | URL подписки> [--name N]   # сервер, поставленный через provision, добавляется сам
-eleutheria servers | remove-server <имя>
-eleutheria connect [--port 7890] [--clash-port 9090] [--server имя] [--ru-direct off|minimal|rulesets]
+eleutheria import <link | subscription URL> [--name N]   # a server installed via provision is added automatically
+eleutheria servers | remove-server <name>
+eleutheria connect [--port 7890] [--clash-port 9090] [--server name] [--ru-direct off|minimal|rulesets]
                    [--test-url https://…] [--tun] [--no-probes]
-eleutheria status       # режим, активный сервер, задержки
+eleutheria status       # mode, active server, latencies
 eleutheria disconnect
-eleutheria probe [--timeout 8]     # один раунд проб и диагноз, ничего не переключает
+eleutheria probe [--timeout 8]     # one probe round and a diagnosis, switches nothing
 eleutheria watch [--interval 30] [--no-switch] [--allow-direct] [--allow-external-exit] [--rounds N]
-eleutheria categories [enable|disable <id>]    # без аргументов: список категорий
+eleutheria categories [enable|disable <id>]    # without arguments: list categories
 ```
 
-По умолчанию `connect` поднимает локальный прокси `127.0.0.1:7890` (HTTP и SOCKS5), его нужно указать
-в браузере или системе. При нескольких серверах работает авто-выбор по задержке и переключение при отказе.
+By default `connect` starts a local proxy at `127.0.0.1:7890` (HTTP and SOCKS5), which you need to set in your browser
+or system. With several servers, automatic selection by latency and failover are active.
 
-Поддерживаемые ссылки: `vless://` (Reality или TLS поверх TCP), `hysteria2://` (и `hy2://`), `tuic://`, `ss://`.
-Подписки: base64-список или обычный список ссылок. Остальные схемы (vmess, trojan и др.) и транспорты (ws, grpc)
-пропускаются с сообщением.
+Supported links: `vless://` (Reality or TLS over TCP), `hysteria2://` (and `hy2://`), `tuic://`, `ss://`.
+Subscriptions: a base64 list or a plain list of links. Other schemes (vmess, trojan, etc.) and transports (ws, grpc)
+are skipped with a message.
 
-`probe` и `watch` используют пробные порты, которые открывает `connect`. С флагом `--no-probes` они недоступны.
-`watch` следит за путями и переключает категории при отказах. Выход мимо VPN (`--allow-direct`) и через внешний exit
-(`--allow-external-exit`) включаются только явно.
+`probe` and `watch` use probe ports that `connect` opens. With `--no-probes` they are unavailable.
+`watch` monitors the paths and switches categories on failures. Bypassing the VPN (`--allow-direct`) and using an
+external exit (`--allow-external-exit`) are enabled only explicitly.
 
-### Российские ресурсы (`--ru-direct`)
+### Russian resources (`--ru-direct`)
 
-- `off`: всё идёт через VPN.
-- `minimal` (по умолчанию): домены `.ru`, `.su`, `.рф` и приватные адреса идут напрямую. Ничего не скачивается.
-- `rulesets`: то же плюс наборы правил `geoip-ru` и `geosite-category-ru`, которые покрывают российские сервисы
-  на других доменах и российские IP-адреса. Наборы скачиваются через прокси при запуске.
+- `off`: everything goes through the VPN.
+- `minimal` (default): `.ru`, `.su`, `.рф` domains and private addresses go direct. Nothing is downloaded.
+- `rulesets`: the same plus the `geoip-ru` and `geosite-category-ru` rule sets, which cover Russian services on other
+  domains and Russian IP addresses. The rule sets are downloaded through the proxy at startup.
 
-## Системный VPN (TUN)
+## System VPN (TUN)
 
 ```
-sudo eleutheria helper install     # один раз: ставит helper-службу и sing-box в /usr/lib/eleutheria
-eleutheria connect --tun           # без sudo: весь трафик и DNS системы идут через VPN
-eleutheria helper status           # отвечает ли helper
+sudo eleutheria helper install     # once: installs the helper service and sing-box into /usr/lib/eleutheria
+eleutheria connect --tun           # no sudo: all system traffic and DNS go through the VPN
+eleutheria helper status           # is the helper responding
 eleutheria status | disconnect
 sudo eleutheria helper uninstall
 ```
 
-Windows (PowerShell или терминал **от имени администратора**, один запрос UAC):
+Windows (PowerShell or a terminal **run as administrator**, a single UAC prompt):
 
 ```
-eleutheria helper install          # служба EleutheriaHelper (LocalSystem), файлы в %ProgramFiles%\Eleutheria
-eleutheria connect --tun           # обычный пользователь, без повышения прав
+eleutheria helper install          # EleutheriaHelper service (LocalSystem), files in %ProgramFiles%\Eleutheria
+eleutheria connect --tun           # regular user, no elevation
 eleutheria status | disconnect
 eleutheria helper uninstall
 ```
 
-В GUI helper устанавливается кнопкой в карточке режима: приложение само запрашивает права
-(polkit на Linux, системный запрос на macOS и Windows).
+In the GUI the helper is installed with a button in the mode card: the app requests the privileges itself
+(polkit on Linux, a system prompt on macOS and Windows).
 
-### Как устроена безопасность
+### How security works
 
-- Helper работает от root и слушает unix-сокет, принадлежащий установившему пользователю (права 600).
-  Дополнительно проверяется uid клиента через SO_PEERCRED. Чужие пользователи получают отказ.
-- Windows: helper слушает named pipe `\\.\pipe\eleutheria-helper` с DACL. Полный доступ у SYSTEM и администраторов,
-  чтение и запись у установившего пользователя, сетевые входы запрещены. Первый экземпляр создаётся с
-  `FILE_FLAG_FIRST_PIPE_INSTANCE`. Каталог `%ProgramData%\Eleutheria` с конфигом sing-box закрыт ACL.
-- Helper не принимает готовый конфиг sing-box, потому что через конфиг можно читать и писать файлы от root.
-  Он получает только данные серверов, валидирует их (host, uuid, sni, ключи, fingerprint, идентификатор
-  стороннего профиля) и сам собирает конфиг.
-  Бинарник sing-box берётся из каталога, куда пишет только root, SHA256 проверяется при установке.
-- DNS: весь DNS системы перехватывается. Обычные имена получают fake-ip (198.18.0.0/15) и резолвятся на сервере
-  через туннель, поэтому запросы не уходят к DNS локальной сети. Домены `.ru/.su/.рф` по умолчанию резолвятся
-  системным DNS и идут напрямую. Это осознанная утечка ради доступа к российским сервисам, отключается `--ru-direct off`.
-- IPv6 включается только если он есть в системе.
-- Если sing-box упал аварийно, helper убирает оставленные им правила маршрутизации.
+- The helper runs as root and listens on a unix socket owned by the installing user (permissions 600).
+  The client uid is additionally checked via SO_PEERCRED. Other users are refused.
+- Windows: the helper listens on the named pipe `\\.\pipe\eleutheria-helper` with a DACL. SYSTEM and administrators
+  have full access, the installing user has read and write access, network logons are denied. The first instance is created
+  with `FILE_FLAG_FIRST_PIPE_INSTANCE`. The `%ProgramData%\Eleutheria` directory with the sing-box config is locked down by ACL.
+- The helper does not accept a ready-made sing-box config, because a config can be used to read and write files as root.
+  It receives only server data, validates it (host, uuid, sni, keys, fingerprint, third-party profile id)
+  and builds the config itself.
+  The sing-box binary is taken from a directory that only root can write to, and its SHA256 is checked at install time.
+- DNS: all system DNS is intercepted. Regular names get a fake-ip (198.18.0.0/15) and are resolved on the server
+  through the tunnel, so queries never reach the local network's DNS. `.ru/.su/.рф` domains are resolved by the system
+  DNS by default and go direct. This is a deliberate leak to keep Russian services reachable; disable it with `--ru-direct off`.
+- IPv6 is enabled only if the system has it.
+- If sing-box crashes, the helper removes the routing rules it left behind.
 
-## Обновления
+## Updates
 
-- **Сервер:** `eleutheria server status <хост>` показывает версии sing-box на сервере и в клиенте.
-  `eleutheria server update <хост>` обновляет sing-box. Ключи и пользователи сохраняются, конфиг проверяется
-  до перезапуска, при сбое возвращаются прежние конфиг и бинарник. То же есть на вкладке «Сервер» в GUI.
-  Для парка: `eleutheria fleet update`.
-- **Приложение:** вкладка «Обновления» проверяет новые версии раз в сутки и по кнопке. Скачивание проверяется
-  по подписи (`requireSignedVersion` защищает от подмены версии на зеркале), затем установка и перезапуск.
-  Перед установкой запускается сторож отката (`eleutheria update-watchdog`): если новая версия не подтвердила
-  успешный запуск за отведённое время, возвращается прежняя. Если GitHub и зеркало недоступны, файл обновления
-  и `.sig` можно выбрать вручную. Пока в `tauri.conf.json` стоят заглушки `pubkey` и адресов, обновления
-  выключены, и интерфейс об этом сообщает. На Linux обновление изнутри работает только в AppImage.
+- **Server:** `eleutheria server status <host>` shows the sing-box versions on the server and in the client.
+  `eleutheria server update <host>` updates sing-box. Keys and users are preserved, the config is validated
+  before the restart, and on failure the previous config and binary are restored. The same is available on the "Server" tab in the GUI.
+  For a fleet: `eleutheria fleet update`.
+- **App:** the "Updates" tab checks for new versions once a day and on demand. Downloads are verified
+  against a signature (`requireSignedVersion` protects against version spoofing on the mirror), then the app installs and restarts.
+  Before installing, a rollback watchdog is started (`eleutheria update-watchdog`): if the new version does not confirm
+  a successful start within the allotted time, the previous one is restored. If neither GitHub nor the mirror is reachable,
+  you can choose the update file and its `.sig` manually. While `tauri.conf.json` still contains the placeholder `pubkey` and
+  endpoints, updates are disabled and the interface says so. On Linux, in-app updating works only in the AppImage.
 
-### Выпуск релиза
+### Releasing
 
-Секреты репозитория `TAURI_SIGNING_PRIVATE_KEY` и `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (Settings → Secrets and variables →
-Actions) нужны workflow `release.yml` для подписи обновлений. Заглушки в `tauri.conf.json` они не заменяют:
-публичный ключ и адреса нужно прописать в конфиге.
+The repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (Settings → Secrets and variables →
+Actions) are required by the `release.yml` workflow to sign updates. They do not replace the placeholders in
+`tauri.conf.json`: the public key and the endpoints must be set in the config.
 
-1. Сгенерировать ключ подписи (один раз): `cargo tauri signer generate -w ~/.tauri/eleutheria.key`. Создаются
-   `eleutheria.key` (приватный) и `eleutheria.key.pub` (публичный). Приватный ключ и пароль идут в секреты
-   репозитория. Офлайн-бэкап приватного ключа обязателен: без него установленные копии нельзя обновить,
-   пользователям придётся переустанавливать приложение.
-2. Прописать публичный ключ и адреса обновлений в `tauri.conf.json`:
+1. Generate the signing key (once): `cargo tauri signer generate -w ~/.tauri/eleutheria.key`. This creates
+   `eleutheria.key` (private) and `eleutheria.key.pub` (public). The private key and its password go into the repository
+   secrets. An offline backup of the private key is mandatory: without it installed copies cannot be updated and
+   users will have to reinstall the app.
+2. Set the public key and the update endpoints in `tauri.conf.json`:
 
    ```
    scripts/set-updater.sh --pubkey-file ~/.tauri/eleutheria.key.pub --github OWNER/REPO [--mirror https://updates.site/eleutheria]
    ```
 
-   Скрипт заменяет `plugins.updater.pubkey` и `plugins.updater.endpoints` и в конце запускает проверку релиза.
-   Приватный ключ скрипт не примет.
-3. Убедиться, что версия в `Cargo.toml` (`[workspace.package]`) и в `tauri.conf.json` совпадают, и проверить:
-   `scripts/check-release.sh vX.Y.Z`. Проверка блокирует релиз с заглушками, не-https адресами, выключенным
-   `requireSignedVersion` и несовпадающими версиями.
-4. Поставить тег `vX.Y.Z` и отправить его на GitHub. Workflow `release.yml`:
-   - `guard`: проверка заглушек и версий, тесты скриптов зеркала и подписи, сквозной тест отката приложения;
-   - `build`: установщики для Linux (deb, AppImage), macOS (dmg) и Windows (msi, exe) через `tauri-action`,
-     подписанные артефакты обновлений и `latest.json` в **черновике** релиза;
-   - `mirror`: выкладка на S3-совместимое зеркало, пропускается, если секреты `MIRROR_*` не заданы.
+   The script replaces `plugins.updater.pubkey` and `plugins.updater.endpoints` and finishes by running the release check.
+   It refuses a private key.
+3. Make sure the version in `Cargo.toml` (`[workspace.package]`) and in `tauri.conf.json` match, then check:
+   `scripts/check-release.sh vX.Y.Z`. The check blocks a release with placeholders, non-https addresses, disabled
+   `requireSignedVersion` or mismatched versions.
+4. Create the tag `vX.Y.Z` and push it to GitHub. The `release.yml` workflow runs:
+   - `guard`: placeholder and version checks, mirror and signing script tests, the end-to-end app rollback test;
+   - `build`: installers for Linux (deb, AppImage), macOS (dmg) and Windows (msi, exe) via `tauri-action`,
+     signed update artifacts and `latest.json` in a **draft** release;
+   - `mirror`: upload to an S3-compatible mirror, skipped if the `MIRROR_*` secrets are not set.
 
-   Проверь черновик и нажми Publish: до этого `latest.json` пользователям не виден. Первый прогон лучше сделать
-   на тестовом теге (например, `v0.0.1-test`), предварительно подняв версию в обоих файлах.
-5. Подпись установщиков необязательна, но без неё SmartScreen и Gatekeeper предупреждают пользователей.
-   Windows: `WINDOWS_CERTIFICATE` (base64 от `.pfx`), `WINDOWS_CERTIFICATE_PASSWORD`. macOS: `APPLE_CERTIFICATE`,
+   Review the draft and click Publish: until then `latest.json` is not visible to users. It is best to do the first run
+   on a test tag (for example `v0.0.1-test`), after bumping the version in both files.
+5. Signing the installers is optional, but without it SmartScreen and Gatekeeper warn users.
+   Windows: `WINDOWS_CERTIFICATE` (base64 of the `.pfx`), `WINDOWS_CERTIFICATE_PASSWORD`. macOS: `APPLE_CERTIFICATE`,
    `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
-   Частично заданный набор считается ошибкой. Переменная репозитория `REQUIRE_SIGNING=true` запрещает релиз
-   без полной подписи (`scripts/check-signing.sh`).
-6. Зеркало необязательно: секреты `MIRROR_S3_ENDPOINT`, `MIRROR_S3_BUCKET`, `MIRROR_BASE_URL`,
-   `MIRROR_ACCESS_KEY_ID`, `MIRROR_SECRET_ACCESS_KEY`. `scripts/mirror-manifest.py` переписывает адреса в `latest.json`.
+   A partially set group counts as an error. The repository variable `REQUIRE_SIGNING=true` forbids a release
+   without complete signing (`scripts/check-signing.sh`).
+6. The mirror is optional: secrets `MIRROR_S3_ENDPOINT`, `MIRROR_S3_BUCKET`, `MIRROR_BASE_URL`,
+   `MIRROR_ACCESS_KEY_ID`, `MIRROR_SECRET_ACCESS_KEY`. `scripts/mirror-manifest.py` rewrites the addresses in `latest.json`.
 
 ## GUI
 
-- `crates/eleutheria-app`: сервисный слой для интерфейса. Тесты: `cargo test -p eleutheria-app`.
-- `crates/eleutheria-gui`: оболочка Tauri 2, фронтенд в `frontend/` (статический, без сборщика, шрифт Manrope
-  лежит локально). Логика экранов вынесена в чистые модули без DOM: `model.js` (главная), `servermodel.js`
-  (мастер сервера), `updatemodel.js`, `probermodel.js`, `guidemodel.js` (тур и справка). Права окна
-  минимальны (`core:default`), команды приложения объявлены в `src/main.rs`, CSP запрещает внешние ресурсы.
-- Сборка на Linux требует `libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
-- Запуск на Linux: `cargo run -p eleutheria-gui` (нужен дисплей; в контейнере используйте Xvfb и
+- `crates/eleutheria-app`: the service layer for the interface. Tests: `cargo test -p eleutheria-app`.
+- `crates/eleutheria-gui`: the Tauri 2 shell, frontend in `frontend/` (static, no bundler, the Manrope font
+  is bundled locally). Screen logic is split into pure modules with no DOM: `model.js` (home), `servermodel.js`
+  (server wizard), `updatemodel.js`, `probermodel.js`, `guidemodel.js` (tour and help). Window permissions
+  are minimal (`core:default`), app commands are declared in `src/main.rs`, and the CSP forbids external resources.
+- Building on Linux requires `libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
+- Running on Linux: `cargo run -p eleutheria-gui` (a display is required; in a container use Xvfb and
   `WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_DISABLE_DMABUF_RENDERER=1`).
-- Установщики: `scripts/prepare-sidecars.sh` (собирает и кладёт `eleutheria` и `eleutheria-helper` в
-  `crates/eleutheria-gui/binaries/`), затем в `crates/eleutheria-gui` выполнить
-  `cargo tauri build --config tauri.bundle.conf.json` (нужен `cargo install tauri-cli --version "^2"`).
-  Артефакты обновлений (`createUpdaterArtifacts`) добавляются конфигом `tauri.updater.conf.json` и нужны
-  только при релизе. Иконки: `python3 scripts/gen-icons.py`.
+- Installers: `scripts/prepare-sidecars.sh` (builds `eleutheria` and `eleutheria-helper` and puts them in
+  `crates/eleutheria-gui/binaries/`), then run in `crates/eleutheria-gui`:
+  `cargo tauri build --config tauri.bundle.conf.json` (requires `cargo install tauri-cli --version "^2"`).
+  Update artifacts (`createUpdaterArtifacts`) are added by the `tauri.updater.conf.json` config and are needed
+  only for a release. Icons: `python3 scripts/gen-icons.py`.
 
-## Тесты и CI
+## Tests and CI
 
-- `cargo test --workspace --exclude eleutheria-gui`: юнит-тесты ядра, CLI, helper и сервисного слоя (состояние
-  и миграция, конфиг, ссылки, pinning, генерация ключей, профили, обновления, откат).
-- `npm install && npm test` в `crates/eleutheria-gui`: тесты интерфейса (Node и jsdom: модели экранов и
+- `cargo test --workspace --exclude eleutheria-gui`: unit tests for the core, CLI, helper and service layer (state
+  and migration, config, links, pinning, key generation, profiles, updates, rollback).
+- `npm install && npm test` in `crates/eleutheria-gui`: interface tests (Node and jsdom: screen models and
   `tests/ui.test.mjs`).
-- `python3 -m unittest -v scripts/test_mirror_manifest.py` и `scripts/test_signing.sh`: скрипты зеркала и подписи.
-- `scripts/e2e-tun.sh`: клиент (helper, sing-box, CLI) и сервер в network namespace. Проверяет маршрут через TUN,
-  выход трафика с сервера, fake-ip DNS, отсутствие утечек, права доступа к helper, отключение и повторное подключение.
-  Создаёт netns, veth и адрес на lo.
-- `scripts/e2e-prober.sh`: пробер и переключение категорий. `scripts/e2e-rollback.sh`: откат обновления приложения
-  со сторожем (запускается и в CI релиза).
-- `scripts/e2e-helper-install.sh`: `helper install/uninstall` с заглушкой systemctl.
-- `scripts/e2e-local.sh`: сквозной стенд на локальном sshd с реальным sing-box. Меняет систему (sshd_config,
-  заглушки в /usr/local/bin, адрес на lo), запускать только в одноразовом контейнере или VM от root.
+- `python3 -m unittest -v scripts/test_mirror_manifest.py` and `scripts/test_signing.sh`: mirror and signing scripts.
+- `scripts/e2e-tun.sh`: client (helper, sing-box, CLI) and server in a network namespace. Checks the route through TUN,
+  traffic leaving from the server, fake-ip DNS, absence of leaks, helper access rights, disconnect and reconnect.
+  Creates a netns, veth and an address on lo.
+- `scripts/e2e-prober.sh`: the prober and category switching. `scripts/e2e-rollback.sh`: app update rollback
+  with the watchdog (also run in the release CI).
+- `scripts/e2e-helper-install.sh`: `helper install/uninstall` with a systemctl stub.
+- `scripts/e2e-local.sh`: an end-to-end rig on a local sshd with a real sing-box. It modifies the system (sshd_config,
+  stubs in /usr/local/bin, an address on lo); run it only in a disposable container or VM as root.
 
-CI (`.github/workflows/build.yml`) на каждый push и pull request на Linux, macOS и Windows запускает тесты Rust
-и интерфейса, проверяет сборку GUI и собирает установщики (артефакты загружаются в запуск). Релиз описан выше.
+CI (`.github/workflows/build.yml`) runs on every push and pull request on Linux, macOS and Windows: it runs the Rust
+and interface tests, checks the GUI build and builds installers (artifacts are uploaded to the run). The release is described above.
 
-## Ограничения
+## Limitations
 
-- Сервер: только root, только Ubuntu и Debian. sing-box работает от root.
-- Основной протокол VLESS + Reality. Запасные (Hysteria2, TUIC v5, Shadowsocks 2022, VLESS + WebSocket через CDN)
-  и сторонние профили подключаются отдельно и проверены меньше.
-- macOS собирается в CI, но на реальной машине не проверялся.
-- Нет kill-switch: если helper или sing-box остановлены, трафик идёт напрямую. Так сделано намеренно,
-  чтобы при аварии не оставить систему без сети.
-- Unit helper-службы почти без sandbox-ограничений. Жёсткие `CapabilityBoundingSet`
-  не включены, потому что sing-box при auto_route требует нескольких capability.
-- Fake-ip адреса не сохраняются между перезапусками туннеля.
-- `--ru-direct rulesets` не проверен в живой сети. Наборы скачиваются с GitHub, а в России он может быть недоступен.
-  По умолчанию включён `minimal`.
-- `--test-url` обязан быть https://, потому что Clash API sing-box подменяет http:// на gstatic.
-- Перезапуск службы при добавлении или удалении пользователя кратко рвёт активные соединения.
-- Правила хостингов могут меняться. На момент выпуска VPN разрешён у всех партнёров из списка (проверено авторами).
-- Приватный SSH-ключ хранится файлом с правами 600 без шифрования, если не используется keyring.
-- Установщики не подписаны сертификатом Windows или Apple, пока не заданы соответствующие секреты CI.
-- Самообновление приложения заработает только после того, как в `tauri.conf.json` вставлены настоящие публичный
-  ключ и адреса (см. [Выпуск релиза](#выпуск-релиза)).
-- Подписку приложение не хостит, а импортирует только перечисленные выше схемы ссылок.
+- Server: root only, Ubuntu and Debian only. sing-box runs as root.
+- The main protocol is VLESS + Reality. The fallback ones (Hysteria2, TUIC v5, Shadowsocks 2022, VLESS + WebSocket via CDN)
+  and third-party profiles are enabled separately and are less tested.
+- macOS builds in CI but has not been tested on a real machine.
+- There is no kill-switch: if the helper or sing-box is stopped, traffic goes direct. This is intentional,
+  so that a crash does not leave the system without a network.
+- The helper service unit has almost no sandbox restrictions. A strict `CapabilityBoundingSet`
+  is not enabled because sing-box needs several capabilities for auto_route.
+- Fake-ip addresses are not preserved between tunnel restarts.
+- `--ru-direct rulesets` has not been tested on a live network. The rule sets are downloaded from GitHub, which may be
+  unavailable in Russia. `minimal` is enabled by default.
+- `--test-url` must be https://, because the sing-box Clash API rewrites http:// to gstatic.
+- Restarting the service when adding or removing a user briefly drops active connections.
+- Hosting rules may change. At the time of release a VPN was allowed at all partners in the list (checked by the authors).
+- The private SSH key is stored as a file with 600 permissions, unencrypted, unless the keyring is used.
+- Installers are not signed with a Windows or Apple certificate until the corresponding CI secrets are set.
+- In-app self-update will work only after the real public key and endpoints are put into `tauri.conf.json`
+  (see [Releasing](#releasing)).
+- The app does not host a subscription, and imports only the link schemes listed above.
 
-## Планы
+## Roadmap
 
-Ближайшие задачи:
+Next tasks:
 
-- Проверка GUI и установщика на живом macOS.
-- Первый публичный релиз с подписью обновлений и проверкой на тестовом теге.
-- Импорт других протоколов (vmess, trojan и др.).
-- Хранение SSH-ключа в keyring без файла.
+- Testing the GUI and installer on a real macOS machine.
+- Verifying update signing end to end on a test tag.
+- Importing other protocols (vmess, trojan, etc.).
+- Storing the SSH key in the keyring without a file.
 
-## Запасные протоколы
+## Fallback protocols
 
-Кроме VLESS + Reality на сервер можно включить дополнительные протоколы: `hysteria2`, `tuic`, `ss2022` и
-`vless-ws` (нужен домен, см. ниже). Они включаются при установке (`provision --protocols …`) или позже:
+Besides VLESS + Reality, you can enable extra protocols on the server: `hysteria2`, `tuic`, `ss2022` and
+`vless-ws` (needs a domain, see below). They are enabled at install time (`provision --protocols …`) or later:
 
 ```
-eleutheria server protocols <IP>                          # что включено
-eleutheria server protocols <IP> --enable hysteria2,tuic  # включить
-eleutheria server protocols <IP> --disable tuic           # выключить
+eleutheria server protocols <IP>                          # what is enabled
+eleutheria server protocols <IP> --enable hysteria2,tuic  # enable
+eleutheria server protocols <IP> --disable tuic           # disable
 ```
 
-Значение `all` включает все встроенные протоколы, кроме `vless-ws`. Ссылка пользователя для VLESS + Reality выводится
-первой, затем по ссылке на каждый включённый встроенный протокол.
+The value `all` enables all built-in protocols except `vless-ws`. The user link for VLESS + Reality is printed
+first, followed by one link for each enabled built-in protocol.
 
-## CDN-профиль (VLESS + WebSocket)
+## CDN profile (VLESS + WebSocket)
 
-Если IP сервера заблокирован, но сам VPS жив, трафик можно пустить через CDN. Нужен свой домен, который проксируется
-Cloudflare (оранжевое облако, режим TLS «Full»):
+If the server's IP is blocked but the VPS itself is alive, traffic can be routed through a CDN. You need your own domain
+proxied by Cloudflare (orange cloud, TLS mode "Full"):
 
 ```
 eleutheria server protocols <IP> --enable vless-ws --cdn-host cdn.example.com
 ```
 
-Клиент подключается к `cdn.example.com:443`, Cloudflare передаёт трафик на сервер (порт 8443). Путь WebSocket
-случайный и секретный. Домен вручную и в CDN настраивается самостоятельно: приложение проверяет только форму имени.
+The client connects to `cdn.example.com:443`, and Cloudflare forwards the traffic to the server (port 8443). The WebSocket
+path is random and secret. The domain and the CDN are set up manually by you: the app only checks the shape of the name.
 
-## Парк серверов
+## Server fleet
 
-Несколько своих VPS с одним пользователем и одной подпиской (серверы должны быть уже установлены через `provision`):
+Several of your own VPS with one user and one subscription (the servers must already be installed via `provision`):
 
 ```
 eleutheria fleet add 203.0.113.5
 eleutheria fleet add 203.0.113.6
 eleutheria fleet list | remove <IP>
-eleutheria fleet user-add alice      # один uuid и секрет на всех серверах
-eleutheria fleet sub alice --out sub.txt   # подписка в base64 со ссылками всех серверов
-eleutheria fleet update              # обновить sing-box везде, актуальные пропускаются
+eleutheria fleet user-add alice      # one uuid and secret on all servers
+eleutheria fleet sub alice --out sub.txt   # a base64 subscription with the links of all servers
+eleutheria fleet update              # update sing-box everywhere, up-to-date ones are skipped
 ```
 
-Подписку приложение не хостит: файл нужно отдать самому (в нём ключи доступа, храни как пароль).
+The app does not host the subscription: you have to serve the file yourself (it contains access keys, treat it like a password).
 
-## Внешний exit (чужой прокси для отдельных сайтов)
+## External exit (someone else's proxy for selected sites)
 
-Если сайт не пускает выходные IP всех твоих серверов, а у тебя есть другой SOCKS5-прокси, его можно подключить цепочкой
-через свой сервер. Прокси видит, какие сайты открываются через него, поэтому нужно явное согласие:
+If a site refuses the exit IPs of all your servers and you have another SOCKS5 proxy, you can chain it through
+your server. The proxy sees which sites are opened through it, so explicit consent is required:
 
 ```
-eleutheria exit add resi "socks5://логин:пароль@198.51.100.7:1080" --via мой-сервер --accept-exit-risk
+eleutheria exit add resi "socks5://login:password@198.51.100.7:1080" --via my-server --accept-exit-risk
 eleutheria exit list
 eleutheria watch --allow-external-exit
 ```
 
-Весь трафик на такой прокси не уходит никогда: только категории (например, видео), и только когда сайт не пускает
-выходной IP твоих серверов, а через прокси открывается. Когда свой сервер снова работает, категория возвращается на него.
-Без `--allow-external-exit` прокси даже не проверяется. Адрес прокси задаётся только IP.
+All traffic never goes to such a proxy: only categories (for example, video), and only when the site refuses the exit IP
+of your servers but opens through the proxy. When your own server works again, the category returns to it.
+Without `--allow-external-exit` the proxy is not even probed. The proxy address can only be given as an IP.
 
-## Сторонние профили протоколов
+## Third-party protocol profiles
 
-Профиль это папка из трёх файлов: `meta.yaml`, `server.json.tpl`, `client.json.tpl` (формат как у встроенных в
-`crates/eleutheria-core/profiles/`: `vless-ws`, `ss2022`, `tuic`, `hysteria2`). Серверный шаблон становится inbound
-sing-box, который работает на VPS от root, поэтому чужой профиль проверяется строго:
+A profile is a folder of three files: `meta.yaml`, `server.json.tpl`, `client.json.tpl` (the format is the same as the
+built-in ones in `crates/eleutheria-core/profiles/`: `vless-ws`, `ss2022`, `tuic`, `hysteria2`). The server template becomes
+a sing-box inbound that runs on the VPS as root, so a third-party profile is validated strictly:
 
 ```
-eleutheria profile list                   # встроенные и установленные
-eleutheria profile diff ./my-profile      # что изменится, ничего не пишет
-eleutheria profile install ./my-profile   # проверка, diff, вопрос [y/N]
+eleutheria profile list                   # built-in and installed
+eleutheria profile diff ./my-profile      # what will change, writes nothing
+eleutheria profile install ./my-profile   # validation, diff, [y/N] prompt
 eleutheria profile remove my-profile
 ```
 
-Что запрещено: типы вне списка (vless, vmess, trojan, shadowsocks, hysteria2, tuic, shadowtls, anytls), ключи
-`detour`, `fallback`, `acme` и любые `*_path` (кроме сертификата и ключа, которые подставляет сам Eleutheria),
-неизвестные переменные, `listen` кроме `::`, порт не из `{{port}}`, `tag` не равный `id`, `id` встроенного
-профиля, любые лишние файлы. `install.sh` не поддерживается намеренно: он выполнялся бы на сервере от root.
-Проверяется результат подстановки, а не текст шаблона. При установке печатаются сводка, отпечаток и diff; без
-ответа `y` (или `--yes`) ничего не пишется. Профили лежат в `~/.config/eleutheria/profiles/<id>/` и проверяются
-заново при каждом чтении.
+What is forbidden: types outside the list (vless, vmess, trojan, shadowsocks, hysteria2, tuic, shadowtls, anytls), the keys
+`detour`, `fallback`, `acme` and any `*_path` (except the certificate and key, which Eleutheria itself substitutes),
+unknown variables, `listen` other than `::`, a port not from `{{port}}`, a `tag` not equal to `id`, the `id` of a built-in
+profile, and any extra files. `install.sh` is intentionally not supported: it would run on the server as root.
+The result of substitution is validated, not the template text. On install a summary, a fingerprint and a diff are printed;
+without a `y` answer (or `--yes`) nothing is written. Profiles are stored in `~/.config/eleutheria/profiles/<id>/` and are
+re-validated on every read.
 
-Установленный профиль выбирается так же, как встроенные запасные протоколы: по его `id`.
+An installed profile is selected the same way as the built-in fallback protocols: by its `id`.
 
 ```
 eleutheria provision <IP> --protocols my-profile
 eleutheria server protocols <IP> --enable my-profile
 ```
 
-Готовых ссылок для сторонних профилей нет: клиентские данные берутся из состояния сервера и манифеста, а шаблон
-`client.json.tpl` решает, какие из них нужны. Сервер с таким профилем добавляется в клиент при установке через
-`provision` на этой же машине. Сторонние профили проверены меньше всего: перед использованием на реальном
-сервере прочитай `diff` и сверь отпечаток с автором профиля.
+There are no ready-made links for third-party profiles: client data is taken from the server state and the manifest, and the
+`client.json.tpl` template decides which of it is needed. A server with such a profile is added to the client when it is installed
+via `provision` on the same machine. Third-party profiles are the least tested: before using one on a real server,
+read the `diff` and compare the fingerprint with the profile's author.
