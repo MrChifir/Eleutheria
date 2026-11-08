@@ -41,7 +41,7 @@ pub struct ServerDto {
     pub host: String,
     pub port: u16,
     pub security: String,
-    /// vless | hysteria2 | tuic | ss2022
+    /// vless | hysteria2 | tuic | ss2022 | vless-ws | trojan | anytls | shadowtls
     pub kind: String,
 }
 
@@ -146,7 +146,7 @@ pub enum SourceKind {
 }
 
 fn is_link(t: &str) -> bool {
-    ["vless://", "hysteria2://", "hy2://", "tuic://", "ss://"].iter().any(|p| t.starts_with(p))
+    ["vless://", "hysteria2://", "hy2://", "tuic://", "ss://", "trojan://", "anytls://"].iter().any(|p| t.starts_with(p))
 }
 
 /// Из вставленного текста (с пробелами, переводами строк, иногда с лишним текстом вокруг) берётся первая ссылка.
@@ -154,7 +154,7 @@ pub fn classify_source(input: &str) -> Result<SourceKind> {
     let tok = input
         .split_whitespace()
         .find(|t| is_link(t) || t.starts_with("http://") || t.starts_with("https://"))
-        .ok_or_else(|| anyhow!("нужна ссылка (vless://, hysteria2://, tuic://, ss://) или URL подписки (http/https)"))?;
+        .ok_or_else(|| anyhow!("нужна ссылка (vless://, hysteria2://, tuic://, ss://, trojan://, anytls://) или URL подписки (http/https)"))?;
     Ok(if is_link(tok) { SourceKind::Link(tok.to_string()) } else { SourceKind::Subscription(tok.to_string()) })
 }
 

@@ -1,5 +1,5 @@
 //! Профили протоколов: папка `meta.yaml` + `server.json.tpl` + `client.json.tpl`. Встроенные профили (Hysteria2,
-//! TUIC, SS-2022) лежат в `crates/eleutheria-core/profiles/` и разбираются тем же кодом, что будет разбирать
+//! TUIC, SS-2022, VLESS-WS, Trojan, AnyTLS, ShadowTLS) лежат в `crates/eleutheria-core/profiles/` и разбираются тем же кодом, что будет разбирать
 //! пользовательские профили (M6).
 //!
 //! Шаблон это JSON, подстановка идёт по значениям, а не по тексту: значение переменной не может изменить
@@ -9,6 +9,10 @@
 //! - `"{{?имя}}"` целиком в значении поля: поле удаляется, если переменной нет, она null или пустой массив;
 //! - `{"$each": "users", "as": "u", "do": {...}}` превращается в массив: `do` для каждого элемента списка;
 //! - `имя.поле` обращается внутрь объекта.
+//!
+//! Шаблон встроенного профиля может быть и массивом объектов: так устроен ShadowTLS (на сервере два inbound,
+//! ShadowTLS и внутренний Shadowsocks; на клиенте два outbound, основной первым). Сторонним профилям массивы
+//! запрещены (проверка в `userprofiles`): им нужен ровно один inbound и один outbound.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -255,6 +259,14 @@ pub fn render(tpl: &Value, vars: &Value) -> Result<Value> {
     }
 }
 
+/// Результат подстановки как список объектов: шаблон-массив даёт его элементы, шаблон-объект один элемент.
+pub fn into_list(v: Value) -> Vec<Value> {
+    match v {
+        Value::Array(a) => a,
+        other => vec![other],
+    }
+}
+
 // ---------- пароли ----------
 
 /// Пароль протокола для пользователя: детерминированно выводится из секрета, у разных протоколов разный.
@@ -287,7 +299,15 @@ macro_rules! builtin {
     };
 }
 
-const BUILTIN_SRC: [(&str, &str, &str, &str); 4] = [builtin!("hysteria2"), builtin!("tuic"), builtin!("ss2022"), builtin!("vless-ws")];
+const BUILTIN_SRC: [(&str, &str, &str, &str); 7] = [
+    builtin!("hysteria2"),
+    builtin!("tuic"),
+    builtin!("ss2022"),
+    builtin!("vless-ws"),
+    builtin!("trojan"),
+    builtin!("anytls"),
+    builtin!("shadowtls"),
+];
 
 fn builtins() -> &'static [Profile] {
     static ALL: OnceLock<Vec<Profile>> = OnceLock::new();
@@ -328,7 +348,7 @@ pub fn parse_protocols(names: &[String]) -> Result<Vec<Proto>> {
         } else {
             let p = Proto::new(n).ok_or_else(|| anyhow!("недопустимое имя протокола `{n}` (a-z, 0-9, -)"))?;
             get(&p).map_err(|_| {
-                anyhow!("неизвестный протокол `{n}`: встроенные hysteria2, tuic, ss2022, vless-ws (и `all` без vless-ws, ему нужен --cdn-host); сторонние ставятся командой `eleutheria profile install`")
+                anyhow!("неизвестный протокол `{n}`: встроенные hysteria2, tuic, ss2022, vless-ws, trojan, anytls, shadowtls (и `all` без vless-ws, ему нужен --cdn-host); сторонние ставятся командой `eleutheria profile install`")
             })?;
             vec![p]
         };
@@ -367,6 +387,8 @@ pub fn server_vars(p: &Proto, st: &State, ps: &ProtoState, cert_dir: &str) -> Re
     Ok(json!({
         "port": ps.port,
         "sni": sni,
+        // сайт для рукопожатия ShadowTLS: тот же, что маскирует Reality (должен поддерживать TLS 1.3)
+        "handshake_server": st.sni,
         "ws_path": ws_path,
         "cert_path": format!("{cert_dir}/cert.pem"),
         "key_path": format!("{cert_dir}/key.pem"),
@@ -492,6 +514,65 @@ mod tests {
         assert!(ok(&meta(""), "{not json").is_err());
         assert!(ok(&meta(""), r#"{"a":"{{oops"}"#).is_err());
         assert!(ok(&meta(""), r#"{"a":"{{Bad Name}}"}"#).is_err());
+    }
+
+    #[test]
+    fn trojan_and_anytls_render_tls_inbound_with_users_and_pinned_client() {
+        let st = state_with_all();
+        for (p, ty, port) in [(Proto::Trojan, "trojan", 2083), (Proto::AnyTls, "anytls", 4443)] {
+            let ps = ProtoState::new(port);
+            let v = bi(p.clone()).render_server(&server_vars(&p, &st, &ps, "/c").unwrap()).unwrap();
+            assert_eq!((v["type"].clone(), v["listen_port"].clone()), (json!(ty), json!(port)));
+            assert_eq!(v["users"].as_array().unwrap().len(), 2);
+            assert_eq!(v["tls"]["certificate_path"], "/c/cert.pem");
+            let vars = json!({ "tag": "t", "host": "h.example", "port": port, "uuid": "", "sni": "www.bing.com", "password": "pw", "pin_list": ["PIN="] });
+            let c = bi(p.clone()).render_client(&vars).unwrap();
+            assert_eq!((c["type"].clone(), c["password"].clone(), c["server_port"].clone()), (json!(ty), json!("pw"), json!(port)));
+            assert_eq!(c["tls"]["certificate_public_key_sha256"], json!(["PIN="]));
+            // без закрепления ключа поле не появляется
+            let c = bi(p.clone()).render_client(&json!({ "tag": "t", "host": "h", "port": port, "uuid": "", "sni": "s", "password": "pw", "pin_list": [] })).unwrap();
+            assert!(c["tls"].get("certificate_public_key_sha256").is_none());
+            assert!(bi(p.clone()).manifest.needs_cert);
+        }
+    }
+
+    #[test]
+    fn shadowtls_renders_two_inbounds_and_two_outbounds() {
+        let mut st = state_with_all();
+        st.protocols.tls = None;
+        let ps = ProtoState { server_key: Some("SERVERKEY==".into()), ..ProtoState::new(9443) };
+        let p = Proto::ShadowTls;
+        assert!(!bi(p.clone()).manifest.needs_cert);
+        let list = into_list(bi(p.clone()).render_server(&server_vars(&p, &st, &ps, "/c").unwrap()).unwrap());
+        assert_eq!(list.len(), 2);
+        let (tls, ss) = (&list[0], &list[1]);
+        assert_eq!((tls["type"].clone(), tls["version"].clone(), tls["listen_port"].clone()), (json!("shadowtls"), json!(3), json!(9443)));
+        assert_eq!(tls["handshake"], json!({ "server": "x.com", "server_port": 443 }), "рукопожатие с сайтом Reality");
+        assert_eq!((tls["strict_mode"].clone(), tls["detour"].clone()), (json!(true), json!(ss["tag"].clone())));
+        assert_eq!(tls["users"].as_array().unwrap().len(), 2);
+        // внутренний Shadowsocks слушает только loopback и не открыт наружу
+        assert_eq!((ss["type"].clone(), ss["listen"].clone(), ss["network"].clone()), (json!("shadowsocks"), json!("127.0.0.1"), json!("tcp")));
+        assert!(ss.get("listen_port").is_none());
+        assert_eq!((ss["method"].clone(), ss["password"].clone()), (json!("2022-blake3-aes-128-gcm"), json!("SERVERKEY==")));
+        assert_eq!(ss["users"], tls["users"], "у обоих слоёв один пароль пользователя");
+        // клиент: основной outbound первый, ShadowTLS его detour
+        let vars = json!({ "tag": "srv-1", "host": "h.example", "port": 9443, "uuid": "", "sni": "www.microsoft.com",
+                           "password": "K:U", "user_password": "U", "method": "2022-blake3-aes-128-gcm", "pin_list": [] });
+        let out = into_list(bi(p.clone()).render_client(&vars).unwrap());
+        assert_eq!(out.len(), 2);
+        assert_eq!((out[0]["type"].clone(), out[0]["tag"].clone(), out[0]["password"].clone()), (json!("shadowsocks"), json!("srv-1"), json!("K:U")));
+        assert_eq!(out[0]["detour"], json!("srv-1-stls"));
+        assert_eq!((out[1]["type"].clone(), out[1]["tag"].clone(), out[1]["password"].clone()), (json!("shadowtls"), json!("srv-1-stls"), json!("U")));
+        assert_eq!((out[1]["server"].clone(), out[1]["server_port"].clone()), (json!("h.example"), json!(9443)));
+        assert!(out[0].get("server").is_none(), "адрес только у ShadowTLS: основной outbound идёт через detour");
+        // без ключа сервера включить нельзя
+        assert!(server_vars(&p, &st, &ProtoState::new(9443), "/c").is_err());
+    }
+
+    #[test]
+    fn single_object_templates_stay_single_elements() {
+        assert_eq!(into_list(json!({ "a": 1 })), vec![json!({ "a": 1 })]);
+        assert_eq!(into_list(json!([{ "a": 1 }, { "b": 2 }])).len(), 2);
     }
 
     #[test]

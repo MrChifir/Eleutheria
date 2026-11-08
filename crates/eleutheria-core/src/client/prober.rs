@@ -151,7 +151,7 @@ pub struct OutboundInfo {
     /// Пусто = как `host`. Нужно, чтобы путь через CDN не принимали за «другой выходной IP».
     #[serde(default)]
     pub exit: String,
-    /// vless | hysteria2 | tuic | ss2022
+    /// vless | hysteria2 | tuic | ss2022 | vless-ws | trojan | anytls | shadowtls
     pub kind: String,
 }
 

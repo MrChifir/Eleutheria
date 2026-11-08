@@ -205,7 +205,7 @@ pub struct ProvisionRequest {
     pub bbr: bool,
     #[serde(default = "yes")]
     pub firewall: bool,
-    /// дополнительные протоколы: hysteria2, tuic, ss2022, id установленного стороннего профиля или all (VLESS+Reality есть всегда)
+    /// дополнительные протоколы: hysteria2, tuic, ss2022, trojan, anytls, shadowtls, id установленного стороннего профиля или all (VLESS+Reality есть всегда)
     #[serde(default)]
     pub protocols: Vec<String>,
     /// домен, проксируемый CDN: нужен для vless-ws
@@ -261,7 +261,7 @@ pub struct NoteDto {
 #[serde(rename_all = "camelCase")]
 pub struct UserLink {
     pub name: String,
-    /// vless | hysteria2 | tuic | ss2022
+    /// vless | hysteria2 | tuic | ss2022 | vless-ws | trojan | anytls | shadowtls
     pub proto: String,
     pub link: String,
     /// QR-код ссылки (SVG); None, если ссылка не помещается в QR

@@ -1,0 +1,11 @@
+schema: 1
+id: shadowtls
+name: ShadowTLS v3
+description: "Настоящее TLS-рукопожатие с сайтом-маскировкой (тем же, что у Reality), внутри Shadowsocks 2022. Сертификаты не нужны. Ссылки нет: работает только в клиенте Eleutheria."
+transport: tcp
+default_port: 9443
+needs_cert: false
+password: base64-16
+server_key: base64-16
+params:
+  method: 2022-blake3-aes-128-gcm

@@ -22,7 +22,7 @@ impl User {
 }
 
 /// Идентификатор профиля протокола сервера (кроме VLESS+Reality, он есть всегда): встроенного (`hysteria2`, `tuic`,
-/// `ss2022`, `vless-ws`) или стороннего (M6.2). В `state.json` это обычная строка, поэтому файлы, записанные
+/// `ss2022`, `vless-ws`, `trojan`, `anytls`, `shadowtls`) или стороннего (M6.2). В `state.json` это обычная строка, поэтому файлы, записанные
 /// до M6.2, читаются без миграции. Допустим только вид `a-z0-9-` (до 32 символов): значение приходит с сервера.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Proto(Cow<'static, str>);
@@ -35,11 +35,17 @@ impl Proto {
     pub const Ss2022: Proto = Proto(Cow::Borrowed("ss2022"));
     /// VLESS + WebSocket + TLS за CDN (Cloudflare): входной IP сервера не виден клиенту и DPI
     pub const VlessWs: Proto = Proto(Cow::Borrowed("vless-ws"));
+    /// Trojan поверх TLS (самоподписанный сертификат, закрепление ключа в клиенте)
+    pub const Trojan: Proto = Proto(Cow::Borrowed("trojan"));
+    /// AnyTLS: TLS с пулом сессий и добиванием пакетов (самоподписанный сертификат, закрепление ключа)
+    pub const AnyTls: Proto = Proto(Cow::Borrowed("anytls"));
+    /// ShadowTLS v3 с Shadowsocks 2022 внутри: рукопожатие с настоящим сайтом, сертификат не нужен
+    pub const ShadowTls: Proto = Proto(Cow::Borrowed("shadowtls"));
 }
 
 impl Proto {
-    pub fn all_builtin() -> [Proto; 4] {
-        [Proto::Hysteria2, Proto::Tuic, Proto::Ss2022, Proto::VlessWs]
+    pub fn all_builtin() -> [Proto; 7] {
+        [Proto::Hysteria2, Proto::Tuic, Proto::Ss2022, Proto::VlessWs, Proto::Trojan, Proto::AnyTls, Proto::ShadowTls]
     }
 
     /// Идентификатор профиля (имя папки с meta.yaml).
@@ -48,8 +54,14 @@ impl Proto {
     }
 
     /// Протоколы, которые включаются без доп. данных (`all` означает именно их): у VLESS-WS нужен домен CDN.
-    pub fn self_contained() -> [Proto; 3] {
-        [Proto::Hysteria2, Proto::Tuic, Proto::Ss2022]
+    pub fn self_contained() -> [Proto; 6] {
+        [Proto::Hysteria2, Proto::Tuic, Proto::Ss2022, Proto::Trojan, Proto::AnyTls, Proto::ShadowTls]
+    }
+
+    /// Есть ли у протокола ссылка для сторонних клиентов. У ShadowTLS общепринятой схемы URI нет: он работает
+    /// только в клиенте Eleutheria (как и сторонние профили).
+    pub fn has_link(&self) -> bool {
+        self.is_builtin() && *self != Proto::ShadowTls
     }
 
     pub fn needs_domain(&self) -> bool {
@@ -77,7 +89,7 @@ impl Proto {
     }
 }
 
-/// Порядок как у прежнего enum (hysteria2, tuic, ss2022, vless-ws), затем сторонние по имени: порядок inbound'ов
+/// Порядок как у прежнего enum (hysteria2, tuic, ss2022, vless-ws), затем trojan, anytls, shadowtls, затем сторонние по имени: порядок inbound'ов
 /// в серверном конфиге и записей в списке серверов не меняется от обновления.
 impl Ord for Proto {
     fn cmp(&self, o: &Proto) -> std::cmp::Ordering {
@@ -119,11 +131,11 @@ pub struct TlsInfo {
     pub cert_sha256: String,
 }
 
-/// Включённый протокол: порт (Hysteria2 и TUIC слушают UDP, SS-2022 и TCP, и UDP).
+/// Включённый протокол: порт (Hysteria2 и TUIC слушают UDP, SS-2022 и TCP, и UDP; Trojan, AnyTLS, ShadowTLS и VLESS-WS только TCP).
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProtoState {
     pub port: u16,
-    /// только SS-2022: ключ сервера (base64), к нему добавляется ключ пользователя
+    /// SS-2022 и ShadowTLS (внутренний Shadowsocks): ключ сервера (base64), к нему добавляется ключ пользователя
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_key: Option<String>,
     /// только VLESS-WS: домен, который смотрит на CDN (клиенты подключаются к нему)
@@ -176,7 +188,7 @@ pub struct State {
     pub sni: String,
     pub port: u16,
     pub users: Vec<User>,
-    /// Hysteria2 / TUIC / SS-2022 (M3). Пусто у серверов, поставленных раньше.
+    /// Дополнительные протоколы (Hysteria2, TUIC, SS-2022, VLESS-WS, Trojan, AnyTLS, ShadowTLS и сторонние). Пусто у серверов, поставленных раньше.
     #[serde(default, skip_serializing_if = "Protocols::is_empty")]
     pub protocols: Protocols,
 }
@@ -286,9 +298,24 @@ mod tests {
         let mut order = vec![Proto::new("zzz").unwrap(), Proto::VlessWs, Proto::new("aaa").unwrap(), Proto::Ss2022, Proto::Tuic, Proto::Hysteria2];
         order.sort();
         assert_eq!(order.iter().map(Proto::id).collect::<Vec<_>>(), ["hysteria2", "tuic", "ss2022", "vless-ws", "aaa", "zzz"]);
+        let mut all = vec![Proto::ShadowTls, Proto::AnyTls, Proto::Trojan, Proto::VlessWs, Proto::Hysteria2];
+        all.sort();
+        assert_eq!(all.iter().map(Proto::id).collect::<Vec<_>>(), ["hysteria2", "vless-ws", "trojan", "anytls", "shadowtls"]);
         assert_eq!(Proto::new(" TUIC "), Some(Proto::Tuic));
         assert_eq!(Proto::new("Demo-X").map(|p| p.id().to_string()), Some("demo-x".into()));
         assert!(Proto::new("a/b").is_none() && Proto::from_id("demo-trojan").is_none());
+    }
+
+    #[test]
+    fn new_builtins_are_recognised_self_contained_and_link_flags_are_right() {
+        for id in ["trojan", "anytls", "shadowtls"] {
+            let p = Proto::from_id(id).unwrap();
+            assert!(p.is_builtin() && Proto::self_contained().contains(&p) && !p.needs_domain(), "{id}");
+        }
+        assert!(Proto::Trojan.has_link() && Proto::AnyTls.has_link() && Proto::Hysteria2.has_link());
+        assert!(!Proto::ShadowTls.has_link() && !Proto::new("demo-x").unwrap().has_link());
+        assert_eq!(ProtoState::new(1).transport_of(&Proto::ShadowTls), crate::profiles::Transport::Tcp);
+        assert_eq!(ProtoState::new(1).transport_of(&Proto::Trojan), crate::profiles::Transport::Tcp);
     }
 
     #[test]

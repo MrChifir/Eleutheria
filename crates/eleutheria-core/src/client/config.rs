@@ -85,34 +85,50 @@ fn socks_outbound(tag: &str, s: &Server, via_tag: &str) -> Value {
 /// Проверенные сторонние профили по идентификатору (нужны серверам с `kind = custom`).
 pub type ProfileSet = std::collections::BTreeMap<String, crate::profiles::Profile>;
 
-fn outbound(tag: &str, s: &Server, via_tag: Option<&str>, set: &ProfileSet) -> Result<Value> {
+/// Пароль пользователя без ключа сервера: у протоколов с общим ключом (SS-2022, ShadowTLS) пароль клиента это
+/// `ключ_сервера:ключ_пользователя`, а ShadowTLS нужна только вторая часть (ключ сервера нужен внутреннему
+/// Shadowsocks). Ни `:` в самом ключе пользователя (base64), ни в ключе сервера не бывает.
+fn user_part(password: &str) -> &str {
+    password.rsplit_once(':').map_or(password, |(_, u)| u)
+}
+
+/// Outbound'ы сервера: основной первым (его тег `tag`, он и участвует в выборе и автовыборе), затем вспомогательные.
+/// Вспомогательный бывает только у ShadowTLS: основной outbound там Shadowsocks, а сам ShadowTLS идёт его `detour`.
+fn outbound(tag: &str, s: &Server, via_tag: Option<&str>, set: &ProfileSet) -> Result<Vec<Value>> {
     if s.kind == Kind::Socks5 {
-        return Ok(socks_outbound(tag, s, via_tag.context("у внешнего exit нет сервера-входа")?));
+        return Ok(vec![socks_outbound(tag, s, via_tag.context("у внешнего exit нет сервера-входа")?)]);
     }
-    let mut o = match s.proto() {
+    let mut out = match s.proto() {
         None if s.kind == Kind::Custom => bail!("у сервера `{}` не задан сторонний профиль", s.name.chars().take(32).collect::<String>()),
-        None => vless_outbound(tag, s),
+        None => vec![vless_outbound(tag, s)],
         Some(p) => {
+            let password = s.password.clone().unwrap_or_default();
             let vars = json!({
                 "tag": tag, "host": s.host, "port": s.port, "uuid": s.uuid, "sni": s.sni,
-                "password": s.password.clone().unwrap_or_default(),
+                "user_password": user_part(&password),
+                "password": password,
                 "method": s.method.clone().unwrap_or_default(),
                 "ws_path": s.ws_path.clone().unwrap_or_default(),
                 "pin_list": s.pin.iter().collect::<Vec<_>>(),
             });
-            match profiles::builtin(&p) {
+            let rendered = match profiles::builtin(&p) {
                 Some(b) => b.render_client(&vars)?,
                 None => set
                     .get(p.id())
                     .with_context(|| format!("профиль `{}` не установлен или не передан", p.id()))?
                     .render_client(&vars)?,
-            }
+            };
+            profiles::into_list(rendered)
         }
     };
+    anyhow::ensure!(!out.is_empty(), "профиль сервера `{}` не дал ни одного outbound", s.name.chars().take(32).collect::<String>());
     if s.host.parse::<std::net::IpAddr>().is_err() {
-        o["domain_resolver"] = json!("local");
+        // имя разрешается тем outbound'ом, который к нему подключается (у ShadowTLS это не основной)
+        for o in out.iter_mut().filter(|o| o.get("server").is_some()) {
+            o["domain_resolver"] = json!("local");
+        }
     }
-    Ok(o)
+    Ok(out)
 }
 
 fn vless_outbound(tag: &str, s: &Server) -> Value {
@@ -154,7 +170,14 @@ pub fn build_with_profiles(servers: &[Server], o: &ClientOpts, set: &ProfileSet)
     super::profile::check_chains(servers)?;
     let tags: Vec<String> = (0..servers.len()).map(server_tag).collect();
     let via_tag = |s: &Server| s.via.as_deref().and_then(|v| servers.iter().position(|x| x.name == v)).map(server_tag);
-    let mut outbounds: Vec<Value> = servers.iter().zip(&tags).map(|(s, t)| outbound(t, s, via_tag(s).as_deref(), set)).collect::<Result<_>>()?;
+    let mut outbounds: Vec<Value> = Vec::new();
+    // вспомогательные outbound'ы (ShadowTLS) в выбор не попадают, только как detour основного; идут в конце списка
+    let mut helpers: Vec<Value> = Vec::new();
+    for (s, t) in servers.iter().zip(&tags) {
+        let mut one = outbound(t, s, via_tag(s).as_deref(), set)?.into_iter();
+        outbounds.extend(one.next());
+        helpers.extend(one);
+    }
     // Внешние exit не участвуют в автовыборе и общем переключателе: весь трафик через них не идёт никогда,
     // только точечно по категориям, когда роутер решил (и пользователь разрешил) это
     let normal_tags: Vec<String> = servers.iter().zip(&tags).filter(|(s, _)| !s.is_external_exit()).map(|(_, t)| t.clone()).collect();
@@ -284,6 +307,8 @@ pub fn build_with_profiles(servers: &[Server], o: &ClientOpts, set: &ProfileSet)
             "users": [{ "username": PROBE_USER, "password": o.secret }],
         }));
     }
+
+    outbounds.extend(helpers);
 
     Ok(json!({
         "log": { "level": "warn", "timestamp": true },
@@ -587,6 +612,92 @@ mod tests {
         assert_eq!((s["type"].clone(), s["method"].clone(), s["password"].clone()), (json!("shadowsocks"), json!("2022-blake3-aes-128-gcm"), json!("K:U")));
         assert!(s.get("tls").is_none());
         assert_eq!(tag(&c, "auto")["outbounds"], json!(["srv-1", "srv-2", "srv-3"]));
+    }
+
+    fn shadowtls_srv() -> Server {
+        Server {
+            kind: Kind::ShadowTls, port: 9443, sni: "www.microsoft.com".into(), pin: None, security: "tls".into(),
+            method: Some("2022-blake3-aes-128-gcm".into()), password: Some("SERVERKEY==:USERKEY==".into()), ..hy2()
+        }
+    }
+
+    #[test]
+    fn trojan_and_anytls_outbounds_are_pinned_tls_with_utls() {
+        let tj = Server { kind: Kind::Trojan, port: 2083, ..hy2() };
+        let at = Server { kind: Kind::AnyTls, port: 4443, name: "a".into(), ..hy2() };
+        let c = build(&[tj, at], &opts()).unwrap();
+        for (t, ty, port) in [("srv-1", "trojan", 2083), ("srv-2", "anytls", 4443)] {
+            let o = tag(&c, t);
+            assert_eq!((o["type"].clone(), o["server_port"].clone(), o["password"].clone()), (json!(ty), json!(port), json!("pw")));
+            assert_eq!(o["tls"]["certificate_public_key_sha256"], json!(["13ULBbir1nqlPWjgHnT6DCikyTLepLk031sjzQ7GiGo="]));
+            assert_eq!((o["tls"]["server_name"].clone(), o["tls"]["utls"]["fingerprint"].clone()), (json!("www.bing.com"), json!("chrome")));
+        }
+        assert_eq!(tag(&c, "auto")["outbounds"], json!(["srv-1", "srv-2"]));
+    }
+
+    #[test]
+    fn shadowtls_gives_a_main_shadowsocks_outbound_and_a_helper_that_is_never_selectable() {
+        let c = build(&[hy2(), shadowtls_srv()], &opts()).unwrap();
+        let main = tag(&c, "srv-2");
+        assert_eq!((main["type"].clone(), main["password"].clone(), main["detour"].clone()), (json!("shadowsocks"), json!("SERVERKEY==:USERKEY=="), json!("srv-2-stls")));
+        assert!(main.get("server").is_none());
+        let helper = tag(&c, "srv-2-stls");
+        assert_eq!((helper["type"].clone(), helper["server"].clone(), helper["server_port"].clone(), helper["version"].clone()), (json!("shadowtls"), json!("203.0.113.5"), json!(9443), json!(3)));
+        assert_eq!(helper["password"], "USERKEY==", "ShadowTLS получает только ключ пользователя");
+        assert_eq!(helper["tls"]["server_name"], "www.microsoft.com");
+        // в автовыборе и переключателе только основные теги
+        assert_eq!(tag(&c, "auto")["outbounds"], json!(["srv-1", "srv-2"]));
+        assert_eq!(tag(&c, "proxy")["outbounds"], json!(["auto", "srv-1", "srv-2"]));
+        // порядок прежних outbound'ов не сдвинулся: вспомогательный в самом конце
+        let tags: Vec<&str> = c["outbounds"].as_array().unwrap().iter().map(|o| o["tag"].as_str().unwrap()).collect();
+        assert_eq!(tags.first(), Some(&"srv-1"));
+        assert_eq!(tags.last(), Some(&"srv-2-stls"));
+        assert_eq!(tags.iter().filter(|t| **t == "srv-2-stls").count(), 1);
+    }
+
+    #[test]
+    fn shadowtls_domain_resolver_goes_to_the_helper_that_dials_the_host() {
+        let s = Server { host: "vpn.example.com".into(), ..shadowtls_srv() };
+        let c = build(&[s], &opts()).unwrap();
+        assert_eq!(tag(&c, "srv-1-stls")["domain_resolver"], "local");
+        assert!(tag(&c, "srv-1").get("domain_resolver").is_none());
+    }
+
+    #[test]
+    fn two_shadowtls_servers_get_distinct_helper_tags_and_probe_ports_follow_main_tags() {
+        let b = Server { name: "b".into(), ..shadowtls_srv() };
+        let mut o = opts();
+        o.probe_ports = vec![ProbePort { tag: "srv-1".into(), port: 20001 }, ProbePort { tag: "srv-2".into(), port: 20002 }];
+        let c = build(&[shadowtls_srv(), b], &o).unwrap();
+        for t in ["srv-1-stls", "srv-2-stls"] {
+            assert_eq!(tag(&c, t)["type"], "shadowtls");
+        }
+        // пробный вход привязан к основному outbound; к вспомогательному пробы не идут
+        let rules = c["route"]["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| r["outbound"] == "srv-2" && r["inbound"] == json!(["probe-srv-2"])));
+        assert!(!rules.iter().any(|r| r["outbound"] == "srv-2-stls"));
+    }
+
+    /// Настоящая проверка ядром: SING_BOX=/путь/к/sing-box cargo test singbox_accepts_new
+    #[test]
+    fn singbox_accepts_new_protocol_client_configs() {
+        let Ok(bin) = std::env::var("SING_BOX") else { return };
+        let dir = std::env::temp_dir().join(format!("el-new-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let servers = [
+            Server { kind: Kind::Trojan, port: 2083, ..hy2() },
+            Server { kind: Kind::AnyTls, port: 4443, name: "a".into(), ..hy2() },
+            Server { name: "s".into(), host: "vpn.example.com".into(), password: Some("AAAAAAAAAAAAAAAAAAAAAA==:BBBBBBBBBBBBBBBBBBBBBA==".into()), ..shadowtls_srv() },
+        ];
+        for tun in [false, true] {
+            let mut o = opts();
+            o.tun = tun;
+            let c = build(&servers, &o).unwrap();
+            let path = dir.join(format!("new-{tun}.json"));
+            std::fs::write(&path, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
+            let out = std::process::Command::new(&bin).args(["check", "-c"]).arg(&path).output().unwrap();
+            assert!(out.status.success(), "tun={tun}: {}", String::from_utf8_lossy(&out.stderr));
+        }
     }
 
     #[test]

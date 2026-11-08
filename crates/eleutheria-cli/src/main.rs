@@ -163,7 +163,7 @@ enum Cmd {
         /// Не включать фаервол ufw
         #[arg(long)]
         no_firewall: bool,
-        /// Дополнительные протоколы через запятую: hysteria2, tuic, ss2022, vless-ws (нужен --cdn-host) , id установленного стороннего профиля или all (без vless-ws; VLESS+Reality есть всегда)
+        /// Дополнительные протоколы через запятую: hysteria2, tuic, ss2022, trojan, anytls, shadowtls, vless-ws (нужен --cdn-host) , id установленного стороннего профиля или all (без vless-ws; VLESS+Reality есть всегда)
         #[arg(long, value_delimiter = ',')]
         protocols: Vec<String>,
         /// Домен, проксируемый CDN (Cloudflare), для протокола vless-ws
@@ -186,7 +186,7 @@ enum Cmd {
     Forget { host: String },
     /// Где лежат SSH-ключи и профили серверов; переносит старые файлы в защищённое хранилище
     Secrets,
-    /// Добавить сервер(ы): ссылка vless://, hysteria2://, tuic://, ss:// или URL подписки
+    /// Добавить сервер(ы): ссылка vless://, hysteria2://, tuic://, ss://, trojan://, anytls:// или URL подписки
     Import {
         source: String,
         /// Имя сервера (только для одиночной ссылки)
@@ -309,7 +309,7 @@ enum ServerCmd {
     Status { #[command(flatten)] conn: Conn },
     /// Обновить sing-box на сервере (ключи и пользователи сохраняются, при сбое откат)
     Update { #[command(flatten)] conn: Conn },
-    /// Включить или выключить дополнительные протоколы (hysteria2, tuic, ss2022, id стороннего профиля или all); без флагов показывает состояние
+    /// Включить или выключить дополнительные протоколы (hysteria2, tuic, ss2022, trojan, anytls, shadowtls, id стороннего профиля или all); без флагов показывает состояние
     Protocols {
         #[command(flatten)]
         conn: Conn,
@@ -701,7 +701,7 @@ async fn main() -> Result<()> {
             }
         },
         Cmd::Import { source, name } => {
-            let (mut servers, skipped) = if ["vless://", "hysteria2://", "hy2://", "tuic://", "ss://"].iter().any(|p| source.starts_with(p)) {
+            let (mut servers, skipped) = if ["vless://", "hysteria2://", "hy2://", "tuic://", "ss://", "trojan://", "anytls://"].iter().any(|p| source.starts_with(p)) {
                 (vec![profile::parse_link(&source)?], vec![])
             } else if source.starts_with("http://") || source.starts_with("https://") {
                 profile::parse_subscription(&profile::fetch_subscription(&source).await?)
@@ -709,7 +709,7 @@ async fn main() -> Result<()> {
                 if source.starts_with("socks5://") {
                     bail!("внешний exit добавляется отдельно, с явным согласием: eleutheria exit add <имя> {source} --via <сервер> --accept-exit-risk");
                 }
-                bail!("нужна ссылка (vless://, hysteria2://, tuic://, ss://) или URL подписки (http/https)");
+                bail!("нужна ссылка (vless://, hysteria2://, tuic://, ss://, trojan://, anytls://) или URL подписки (http/https)");
             };
             if let (Some(n), 1) = (name, servers.len()) {
                 servers[0].name = n;

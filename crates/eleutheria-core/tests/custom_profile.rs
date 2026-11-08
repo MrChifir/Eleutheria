@@ -68,7 +68,7 @@ fn custom_profile_end_to_end() {
     // 2. установка и включение
     install(&root, &base.join("src1"), META, SERVER, CLIENT);
     install(&root, &base.join("src2"), META_KEYED, SERVER_KEYED, CLIENT_KEYED);
-    assert_eq!(profiles::parse_protocols(&["demo-trojan".into(), "all".into()]).unwrap().len(), 4);
+    assert_eq!(profiles::parse_protocols(&["demo-trojan".into(), "all".into()]).unwrap().len(), 1 + Proto::self_contained().len());
 
     // 3. серверный конфиг: inbound'ы по порядку (встроенный, затем сторонний), у каждого пользователя свой пароль
     let cfg = config::server_config(&st).unwrap();

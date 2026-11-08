@@ -81,6 +81,9 @@ export const PROTOCOLS = [
   { id: 'hysteria2', label: 'Hysteria2', hint: 'QUIC (UDP), быстрый на каналах с потерями' },
   { id: 'tuic', label: 'TUIC v5', hint: 'QUIC (UDP), другой отпечаток' },
   { id: 'ss2022', label: 'Shadowsocks 2022', hint: 'TCP и UDP, без сертификатов' },
+  { id: 'trojan', label: 'Trojan', hint: 'TCP + TLS, самоподписанный сертификат' },
+  { id: 'anytls', label: 'AnyTLS', hint: 'TCP + TLS с добиванием пакетов' },
+  { id: 'shadowtls', label: 'ShadowTLS v3', hint: 'настоящее TLS-рукопожатие, только в клиенте Eleutheria' },
 ];
 
 export function protoLabel(id) {

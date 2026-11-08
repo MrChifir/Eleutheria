@@ -82,6 +82,6 @@ test('протоколы: запрос, подписи, ссылки польз�
   assert.deepEqual(sm.linksForUser(links, 'a').map((l) => l.proto), ['vless', 'tuic']);
   assert.deepEqual(sm.linksForUser(null, 'a'), []);
   const rows = sm.protocolRows(['tuic']);
-  assert.deepEqual(rows.map((r) => [r.id, r.on, r.action]), [['hysteria2', false, 'enable'], ['tuic', true, 'disable'], ['ss2022', false, 'enable']]);
+  assert.deepEqual(rows.map((r) => [r.id, r.on, r.action]), [['hysteria2', false, 'enable'], ['tuic', true, 'disable'], ['ss2022', false, 'enable'], ['trojan', false, 'enable'], ['anytls', false, 'enable'], ['shadowtls', false, 'enable']]);
   assert.ok(sm.protocolRows(undefined).every((r) => !r.on));
 });

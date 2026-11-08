@@ -29,6 +29,14 @@ pub enum Kind {
     /// VLESS + WebSocket + TLS через CDN
     #[serde(rename = "vless-ws")]
     VlessWs,
+    /// Trojan поверх TLS
+    Trojan,
+    /// AnyTLS
+    #[serde(rename = "anytls")]
+    AnyTls,
+    /// ShadowTLS v3 с Shadowsocks 2022 внутри (в конфиге это два outbound, см. `client::config`)
+    #[serde(rename = "shadowtls")]
+    ShadowTls,
     /// Сторонний профиль (M6.2): идентификатор в `Server::profile`, outbound собирается по шаблону профиля
     #[serde(rename = "custom")]
     Custom,
@@ -42,6 +50,9 @@ impl Kind {
             Kind::Tuic => Some(Proto::Tuic),
             Kind::Ss2022 => Some(Proto::Ss2022),
             Kind::VlessWs => Some(Proto::VlessWs),
+            Kind::Trojan => Some(Proto::Trojan),
+            Kind::AnyTls => Some(Proto::AnyTls),
+            Kind::ShadowTls => Some(Proto::ShadowTls),
             Kind::Socks5 | Kind::Custom => None,
         }
     }
@@ -53,6 +64,9 @@ impl Kind {
             Kind::Tuic => "tuic",
             Kind::Ss2022 => "ss2022",
             Kind::VlessWs => "vless-ws",
+            Kind::Trojan => "trojan",
+            Kind::AnyTls => "anytls",
+            Kind::ShadowTls => "shadowtls",
             Kind::Socks5 => "socks5",
             Kind::Custom => "custom",
         }
@@ -69,18 +83,18 @@ pub struct Server {
     pub name: String,
     pub host: String,
     pub port: u16,
-    /// VLESS и TUIC; у остальных пусто
+    /// VLESS и TUIC; у остальных пусто (у стороннего профиля это uuid пользователя)
     #[serde(default)]
     pub uuid: String,
     #[serde(default)]
     pub kind: Kind,
-    /// Hysteria2, TUIC: пароль; SS-2022: `ключ_сервера:ключ_пользователя`
+    /// Hysteria2, TUIC, Trojan, AnyTLS: пароль; SS-2022 и ShadowTLS: `ключ_сервера:ключ_пользователя`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
-    /// SS-2022: шифр
+    /// SS-2022 и ShadowTLS (внутренний Shadowsocks): шифр
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
-    /// Hysteria2, TUIC: SHA-256 от SPKI сервера (base64). Нет: сертификат проверяется обычным способом
+    /// Hysteria2, TUIC, Trojan, AnyTLS: SHA-256 от SPKI сервера (base64). Нет: сертификат проверяется обычным способом
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<String>,
     pub flow: Option<String>,
@@ -190,6 +204,13 @@ impl Server {
                 origin: Some(host.to_string()),
                 ..base
             }
+        } else if *p == Proto::Trojan {
+            Server { kind: Kind::Trojan, sni: tls()?.sni.clone(), pin: Some(tls()?.spki_sha256.clone()), ..base }
+        } else if *p == Proto::AnyTls {
+            Server { kind: Kind::AnyTls, sni: tls()?.sni.clone(), pin: Some(tls()?.spki_sha256.clone()), ..base }
+        } else if *p == Proto::ShadowTls {
+            // sni здесь имя сайта для рукопожатия (тот же, что маскирует Reality), а не имя в сертификате: сертификата нет
+            Server { kind: Kind::ShadowTls, sni: st.sni.clone(), method: prof.manifest.params.get("method").cloned(), ..base }
         } else if *p == Proto::Ss2022 {
             Server { kind: Kind::Ss2022, security: "none".into(), method: prof.manifest.params.get("method").cloned(), ..base }
         } else {
@@ -263,7 +284,7 @@ impl Server {
                     other => bail!("недопустимый security `{other}`"),
                 }
             }
-            Kind::Hysteria2 | Kind::Tuic => {
+            Kind::Hysteria2 | Kind::Tuic | Kind::Trojan | Kind::AnyTls => {
                 if self.kind == Kind::Tuic && !uuid_ok(&self.uuid) {
                     bail!("недопустимый uuid");
                 }
@@ -335,6 +356,21 @@ impl Server {
                 }
                 if self.ws_path.is_some() || self.origin.is_some() || self.via.is_some() || self.username.is_some() {
                     bail!("у стороннего профиля нет ws_path, origin, via и username");
+                }
+            }
+            Kind::ShadowTls => {
+                if !matches!(&self.method, Some(m) if SS_METHODS.contains(&m.as_str())) {
+                    bail!("недопустимый шифр ShadowTLS (внутренний Shadowsocks 2022)");
+                }
+                match &self.password {
+                    Some(p) if !p.is_empty() && p.len() <= 256 && charset(p, "+/=:") => {}
+                    _ => bail!("недопустимый пароль ShadowTLS"),
+                }
+                if !sni_ok(&self.sni) {
+                    bail!("недопустимый сайт для рукопожатия ShadowTLS");
+                }
+                if self.pin.is_some() {
+                    bail!("у ShadowTLS нет закрепления сертификата");
                 }
             }
             Kind::Ss2022 => {
@@ -576,6 +612,65 @@ pub fn parse_tuic(link: &str) -> Result<Server> {
     })
 }
 
+/// `trojan://пароль@host:port?security=tls&sni=..&pinSPKI=..#имя`. Только TCP+TLS: ws, grpc и прочие транспорты
+/// не поддерживаются.
+pub fn parse_trojan(link: &str) -> Result<Server> {
+    let rest = link.trim().strip_prefix("trojan://").context("это не trojan:// ссылка")?;
+    let (auth, host, port, q, label) = split_url(rest)?;
+    let get = |k: &str| q.get(k).map(String::as_str).filter(|v| !v.is_empty());
+    if let Some(t) = get("type").filter(|t| *t != "tcp") {
+        bail!("транспорт `{t}` не поддерживается (только tcp)");
+    }
+    if let Some(sec) = get("security").filter(|s| *s != "tls") {
+        bail!("security=`{sec}` не поддерживается (нужен tls)");
+    }
+    if get("plugin").is_some() {
+        bail!("плагины Trojan не поддерживаются");
+    }
+    let pin = pin_from_query(&q, &["allowInsecure", "allow_insecure", "insecure"])?;
+    Ok(Server {
+        ws_path: None, origin: None, via: None, username: None, profile: None,
+        name: label.unwrap_or_else(|| host.clone()),
+        sni: get("sni").or_else(|| get("peer")).map(str::to_string).unwrap_or_else(|| host.clone()),
+        host,
+        port,
+        uuid: String::new(),
+        kind: Kind::Trojan,
+        password: Some(urlencoding::decode(&auth)?.into_owned()),
+        method: None,
+        pin,
+        flow: None,
+        security: "tls".into(),
+        fingerprint: "chrome".into(),
+        public_key: None,
+        short_id: None,
+    })
+}
+
+/// `anytls://пароль@host:port?sni=..&insecure=1&pinSPKI=..#имя`.
+pub fn parse_anytls(link: &str) -> Result<Server> {
+    let rest = link.trim().strip_prefix("anytls://").context("это не anytls:// ссылка")?;
+    let (auth, host, port, q, label) = split_url(rest)?;
+    let pin = pin_from_query(&q, &["insecure", "allowInsecure", "allow_insecure"])?;
+    Ok(Server {
+        ws_path: None, origin: None, via: None, username: None, profile: None,
+        name: label.unwrap_or_else(|| host.clone()),
+        sni: q.get("sni").filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| host.clone()),
+        host,
+        port,
+        uuid: String::new(),
+        kind: Kind::AnyTls,
+        password: Some(urlencoding::decode(&auth)?.into_owned()),
+        method: None,
+        pin,
+        flow: None,
+        security: "tls".into(),
+        fingerprint: "chrome".into(),
+        public_key: None,
+        short_id: None,
+    })
+}
+
 /// `ss://method:password@host:port` (SIP002; userinfo либо в процентном кодировании, либо base64url).
 /// Поддерживаются только шифры SS-2022.
 pub fn parse_ss(link: &str) -> Result<Server> {
@@ -625,8 +720,12 @@ pub fn parse_link(link: &str) -> Result<Server> {
         parse_tuic(t)?
     } else if t.starts_with("ss://") {
         parse_ss(t)?
+    } else if t.starts_with("trojan://") {
+        parse_trojan(t)?
+    } else if t.starts_with("anytls://") {
+        parse_anytls(t)?
     } else {
-        bail!("схема `{}` не поддерживается (vless, hysteria2, tuic, ss)", t.split("://").next().unwrap_or("?"));
+        bail!("схема `{}` не поддерживается (vless, hysteria2, tuic, ss, trojan, anytls)", t.split("://").next().unwrap_or("?"));
     };
     s.validate()?;
     Ok(s)
@@ -665,7 +764,7 @@ pub fn parse_subscription(body: &str) -> (Vec<Server>, Vec<String>) {
     let (mut servers, mut skipped) = (Vec::new(), Vec::new());
     for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
         let scheme = line.split("://").next().unwrap_or("?");
-        if matches!(scheme, "vless" | "hysteria2" | "hy2" | "tuic" | "ss") {
+        if matches!(scheme, "vless" | "hysteria2" | "hy2" | "tuic" | "ss" | "trojan" | "anytls") {
             match parse_link(line) {
                 Ok(s) => servers.push(s),
                 Err(e) => skipped.push(format!("{}: {e:#}", line.chars().take(40).collect::<String>())),
@@ -1136,10 +1235,93 @@ mod tests {
     #[test]
     fn subscription_mixes_protocols() {
         let st = full_state();
-        let body: String = crate::config::all_links("203.0.113.5", &st, &st.users[0]).unwrap().into_iter().map(|l| l.url + "\n").collect::<String>() + "trojan://zzz\n";
+        let body: String = crate::config::all_links("203.0.113.5", &st, &st.users[0]).unwrap().into_iter().map(|l| l.url + "\n").collect::<String>() + "vmess://zzz\n";
         let (servers, skipped) = parse_subscription(&body);
         assert_eq!(servers.iter().map(|s| s.kind).collect::<Vec<_>>(), vec![Kind::Vless, Kind::Hysteria2, Kind::Tuic, Kind::Ss2022]);
         assert_eq!(skipped.len(), 1);
+    }
+
+    fn new_protocols_state() -> State {
+        use crate::state::ProtoState;
+        let mut st = full_state();
+        st.protocols.enabled.insert(Proto::Trojan, ProtoState::new(2083));
+        st.protocols.enabled.insert(Proto::AnyTls, ProtoState::new(4443));
+        st.protocols.enabled.insert(Proto::ShadowTls, ProtoState { server_key: Some("BBBBBBBBBBBBBBBBBBBBBA==".into()), ..ProtoState::new(9443) });
+        st
+    }
+
+    #[test]
+    fn trojan_anytls_shadowtls_records_come_from_state_and_validate() {
+        let st = new_protocols_state();
+        let all = servers_from_state("203.0.113.5", &st, &st.users[0]).unwrap();
+        let by = |k: Kind| all.iter().find(|s| s.kind == k).unwrap_or_else(|| panic!("{k:?}")).clone();
+        all.iter().for_each(|s| s.validate().unwrap());
+        let (tj, at, stls) = (by(Kind::Trojan), by(Kind::AnyTls), by(Kind::ShadowTls));
+        for s in [&tj, &at] {
+            assert_eq!((s.port, s.sni.as_str(), s.pin.as_deref()), (if s.kind == Kind::Trojan { 2083 } else { 4443 }, "www.bing.com", Some("13ULBbir1nqlPWjgHnT6DCikyTLepLk031sjzQ7GiGo=")));
+            assert_eq!(s.password.as_deref().map(str::len), Some(32), "hex32 пароль пользователя");
+        }
+        assert_eq!((stls.port, stls.sni.as_str(), stls.method.as_deref()), (9443, "www.microsoft.com", Some("2022-blake3-aes-128-gcm")));
+        assert!(stls.pin.is_none());
+        let pw = stls.password.as_deref().unwrap();
+        assert!(pw.starts_with("BBBBBBBBBBBBBBBBBBBBBA==:"), "ключ сервера:ключ пользователя, {pw}");
+        assert_eq!((tj.proto(), at.proto(), stls.proto()), (Some(Proto::Trojan), Some(Proto::AnyTls), Some(Proto::ShadowTls)));
+        assert_eq!((tj.kind_label(), at.kind_label(), stls.kind_label()), ("trojan".to_string(), "anytls".to_string(), "shadowtls".to_string()));
+    }
+
+    #[test]
+    fn trojan_and_anytls_own_links_roundtrip_and_shadowtls_has_no_link() {
+        let st = new_protocols_state();
+        let u = &st.users[0];
+        let all = servers_from_state("203.0.113.5", &st, u).unwrap();
+        let links = crate::config::all_links("203.0.113.5", &st, u).unwrap();
+        assert!(links.iter().all(|l| l.proto != "shadowtls"));
+        for l in links.iter().filter(|l| l.proto == "trojan" || l.proto == "anytls") {
+            let parsed = parse_link(&l.url).unwrap_or_else(|e| panic!("{}: {e:#}", l.proto));
+            let want = all.iter().find(|s| s.kind_label() == l.proto).unwrap();
+            assert_eq!((parsed.host.as_str(), parsed.port, parsed.kind), (want.host.as_str(), want.port, want.kind), "{}", l.proto);
+            assert_eq!((&parsed.password, &parsed.pin, &parsed.sni), (&want.password, &want.pin, &want.sni), "{}", l.proto);
+            parsed.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn foreign_trojan_and_anytls_links_are_strict_about_certificates_and_transports() {
+        let ok = parse_link("trojan://pa%24%24@vpn.example.com:443?security=tls&sni=vpn.example.com&type=tcp#Mine").unwrap();
+        assert_eq!((ok.kind, ok.password.as_deref(), ok.pin.as_deref(), ok.name.as_str(), ok.sni.as_str()), (Kind::Trojan, Some("pa$$"), None, "Mine", "vpn.example.com"));
+        assert_eq!(parse_link("trojan://x@h.example:443").unwrap().sni, "h.example", "без sni берётся хост");
+        assert!(parse_link("trojan://x@h.example:443?allowInsecure=1").unwrap_err().to_string().contains("pinSPKI"));
+        assert!(parse_link("trojan://x@h.example:443?type=ws&path=%2Fa").unwrap_err().to_string().contains("ws"));
+        assert!(parse_link("trojan://x@h.example:443?security=reality").is_err());
+        let pinned = parse_link("trojan://x@h.example:443?allowInsecure=1&pinSPKI=13ULBbir1nqlPWjgHnT6DCikyTLepLk031sjzQ7GiGo%3D").unwrap();
+        assert_eq!(pinned.pin.as_deref(), Some("13ULBbir1nqlPWjgHnT6DCikyTLepLk031sjzQ7GiGo="));
+        let a = parse_link("anytls://pw@h.example:4443?sni=front.example#A").unwrap();
+        assert_eq!((a.kind, a.sni.as_str(), a.password.as_deref(), a.pin.is_none()), (Kind::AnyTls, "front.example", Some("pw"), true));
+        assert!(parse_link("anytls://pw@h.example:4443?insecure=1").is_err());
+        assert!(parse_link("anytls://h.example:4443").is_err(), "нет пароля перед @");
+    }
+
+    #[test]
+    fn new_kinds_validate_and_serialize_under_their_ids() {
+        let st = new_protocols_state();
+        let all = servers_from_state("203.0.113.5", &st, &st.users[0]).unwrap();
+        let stls = all.iter().find(|s| s.kind == Kind::ShadowTls).unwrap().clone();
+        let bad = |f: &dyn Fn(&mut Server)| { let mut s = stls.clone(); f(&mut s); s.validate().is_err() };
+        assert!(bad(&|s| s.method = None));
+        assert!(bad(&|s| s.method = Some("aes-256-gcm".into())));
+        assert!(bad(&|s| s.password = Some("a\"b".into())));
+        assert!(bad(&|s| s.sni = "x y".into()));
+        assert!(bad(&|s| s.pin = Some("13ULBbir1nqlPWjgHnT6DCikyTLepLk031sjzQ7GiGo=".into())));
+        let tj = all.iter().find(|s| s.kind == Kind::Trojan).unwrap().clone();
+        let bad_tj = |f: &dyn Fn(&mut Server)| { let mut s = tj.clone(); f(&mut s); s.validate().is_err() };
+        assert!(bad_tj(&|s| s.password = None));
+        assert!(bad_tj(&|s| s.pin = Some("short".into())));
+        for (k, id) in [(Kind::Trojan, "trojan"), (Kind::AnyTls, "anytls"), (Kind::ShadowTls, "shadowtls")] {
+            let s = all.iter().find(|s| s.kind == k).unwrap();
+            let json = serde_json::to_string(s).unwrap();
+            assert!(json.contains(&format!("\"kind\":\"{id}\"")), "{json}");
+            assert_eq!(&serde_json::from_str::<Server>(&json).unwrap(), s);
+        }
     }
 
     #[test]

@@ -16,10 +16,11 @@ pub fn server_config(s: &State) -> Result<Value> {
 pub fn server_config_in(s: &State, cert_dir: &str) -> Result<Value> {
     let mut cfg = reality_config(s);
     for (p, ps) in &s.protocols.enabled {
-        let inbound = profiles::get(p)?
+        let rendered = profiles::get(p)?
             .render_server(&profiles::server_vars(p, s, ps, cert_dir)?)
             .with_context(|| format!("не удалось собрать inbound {}", p.id()))?;
-        cfg["inbounds"].as_array_mut().expect("inbounds").push(inbound);
+        // у ShadowTLS два inbound (сам ShadowTLS и внутренний Shadowsocks), у остальных один
+        cfg["inbounds"].as_array_mut().expect("inbounds").extend(profiles::into_list(rendered));
     }
     Ok(cfg)
 }
@@ -99,6 +100,9 @@ pub fn proto_link(p: &Proto, host: &str, s: &State, u: &User) -> Result<String> 
     if !p.is_builtin() {
         bail!("у стороннего профиля `{}` нет ссылки: он работает только в клиенте Eleutheria", p.id());
     }
+    if !p.has_link() {
+        bail!("у {} нет общепринятой ссылки: он работает только в клиенте Eleutheria", p.id());
+    }
     let (h, label) = (bracket(host), urlencoding::encode(&format!("{} {}", label_of(s, u), p.id())).into_owned());
     let pw = if *p == Proto::VlessWs { String::new() } else { urlencoding::encode(&client_password(p, s, u)?).into_owned() };
     let tls = || s.protocols.tls.as_ref().context("нет сертификата в состоянии сервера");
@@ -114,6 +118,18 @@ pub fn proto_link(p: &Proto, host: &str, s: &State, u: &User) -> Result<String> 
             "tuic://{uuid}:{pw}@{h}:{port}?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni={sni}&allow_insecure=1&pinSPKI={spki}#{label}",
             uuid = u.uuid, port = ps.port, sni = urlencoding::encode(&t.sni), spki = urlencoding::encode(&t.spki_sha256),
         )
+    } else if *p == Proto::Trojan {
+        let t = tls()?;
+        format!(
+            "trojan://{pw}@{h}:{port}?security=tls&type=tcp&sni={sni}&allowInsecure=1&pinSPKI={spki}#{label}",
+            port = ps.port, sni = urlencoding::encode(&t.sni), spki = urlencoding::encode(&t.spki_sha256),
+        )
+    } else if *p == Proto::AnyTls {
+        let t = tls()?;
+        format!(
+            "anytls://{pw}@{h}:{port}?sni={sni}&insecure=1&pinSPKI={spki}#{label}",
+            port = ps.port, sni = urlencoding::encode(&t.sni), spki = urlencoding::encode(&t.spki_sha256),
+        )
     } else if *p == Proto::VlessWs {
         let cdn = ps.cdn_host.as_deref().context("для VLESS-WS в состоянии сервера нет домена CDN")?;
         let path = ps.ws_path.as_deref().context("для VLESS-WS в состоянии сервера нет пути")?;
@@ -128,15 +144,16 @@ pub fn proto_link(p: &Proto, host: &str, s: &State, u: &User) -> Result<String> 
 }
 
 pub struct UserLink {
-    /// "vless", "hysteria2", "tuic", "ss2022"
+    /// "vless", "hysteria2", "tuic", "ss2022", "vless-ws", "trojan", "anytls"
     pub proto: String,
     pub url: String,
 }
 
-/// Все ссылки пользователя: Reality первой, затем включённые встроенные протоколы (у сторонних ссылок нет).
+/// Все ссылки пользователя: Reality первой, затем включённые встроенные протоколы со ссылкой (у сторонних и у
+/// ShadowTLS ссылок нет: они работают только в клиенте Eleutheria).
 pub fn all_links(host: &str, s: &State, u: &User) -> Result<Vec<UserLink>> {
     let mut out = vec![UserLink { proto: "vless".into(), url: vless_link(host, s, u) }];
-    for p in s.protocols.enabled.keys().filter(|p| p.is_builtin()) {
+    for p in s.protocols.enabled.keys().filter(|p| p.has_link()) {
         out.push(UserLink { proto: p.id().to_string(), url: proto_link(p, host, s, u)? });
     }
     Ok(out)
@@ -178,6 +195,64 @@ mod tests {
     fn ipv6_host_is_bracketed() {
         let s = sample();
         assert!(vless_link("2001:db8::1", &s, &s.users[0]).contains("@[2001:db8::1]:443?"));
+    }
+
+    fn state_with_new_protocols() -> State {
+        use crate::state::{ProtoState, TlsInfo};
+        let mut s = sample();
+        for u in &mut s.users {
+            u.secret = Some(format!("secret-{}", u.name));
+        }
+        s.protocols.tls = Some(TlsInfo { sni: "www.bing.com".into(), spki_sha256: "AbC+/=PIN".into(), cert_sha256: "ab".into() });
+        s.protocols.enabled.insert(Proto::Trojan, ProtoState::new(2083));
+        s.protocols.enabled.insert(Proto::AnyTls, ProtoState::new(4443));
+        s.protocols.enabled.insert(Proto::ShadowTls, ProtoState { server_key: Some("BBBBBBBBBBBBBBBBBBBBBA==".into()), ..ProtoState::new(9443) });
+        s
+    }
+
+    #[test]
+    fn server_config_adds_one_inbound_per_new_protocol_and_two_for_shadowtls() {
+        let s = state_with_new_protocols();
+        let c = server_config(&s).unwrap();
+        let ins = c["inbounds"].as_array().unwrap();
+        let tags: Vec<&str> = ins.iter().map(|i| i["tag"].as_str().unwrap()).collect();
+        assert_eq!(tags, ["vless-reality", "trojan", "anytls", "shadowtls", "shadowtls-ss"]);
+        let tls = &ins[3];
+        assert_eq!(tls["handshake"]["server"], "www.microsoft.com");
+        assert_eq!(tls["detour"], ins[4]["tag"]);
+        assert_eq!(ins[4]["users"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn trojan_and_anytls_links_carry_password_sni_and_pin_but_shadowtls_has_none() {
+        let s = state_with_new_protocols();
+        let u = &s.users[0];
+        let t = proto_link(&Proto::Trojan, "203.0.113.5", &s, u).unwrap();
+        assert!(t.starts_with("trojan://") && t.contains("@203.0.113.5:2083?") && t.contains("sni=www.bing.com") && t.contains("pinSPKI=AbC%2B%2F%3DPIN"), "{t}");
+        let a = proto_link(&Proto::AnyTls, "203.0.113.5", &s, u).unwrap();
+        assert!(a.starts_with("anytls://") && a.contains("@203.0.113.5:4443?") && a.contains("insecure=1"), "{a}");
+        assert!(proto_link(&Proto::ShadowTls, "203.0.113.5", &s, u).is_err());
+        let all = all_links("203.0.113.5", &s, u).unwrap();
+        assert_eq!(all.iter().map(|l| l.proto.as_str()).collect::<Vec<_>>(), ["vless", "trojan", "anytls"], "у ShadowTLS ссылки нет");
+    }
+
+    /// Настоящая проверка ядром: SING_BOX=/путь/к/sing-box cargo test singbox_accepts_new
+    #[test]
+    fn singbox_accepts_new_protocol_server_config() {
+        let Ok(bin) = std::env::var("SING_BOX") else { return };
+        let dir = std::env::temp_dir().join(format!("el-new-srv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = crate::tlscert::generate("www.bing.com").unwrap();
+        std::fs::write(dir.join("cert.pem"), cert.cert_pem).unwrap();
+        std::fs::write(dir.join("key.pem"), cert.key_pem).unwrap();
+        let mut s = state_with_new_protocols();
+        s.private_key = "-F27ryXWXtDI0Jn1xNAL2u2TgoUr9fXvOycRwe6LxlU".into();
+        s.short_id = "abcd1234".into();
+        let c = server_config_in(&s, dir.to_str().unwrap()).unwrap();
+        let path = dir.join("server.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
+        let out = std::process::Command::new(&bin).args(["check", "-c"]).arg(&path).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 
     #[test]
