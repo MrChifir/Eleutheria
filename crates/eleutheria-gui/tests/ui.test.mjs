@@ -215,8 +215,9 @@ test('пользователи: список, ссылка с QR по нажат
 
 test('протоколы: включение и выключение на сервере, ссылки по каждому протоколу', async () => {
   const rows = () => [...$('protocols').querySelectorAll('li')];
-  assert.equal(rows().length, 3);
-  assert.deepEqual(rows().map((li) => li.querySelector('button').textContent), ['Включить', 'Включить', 'Включить']);
+  assert.equal(rows().length, 6);
+  assert.deepEqual(rows().map((li) => li.querySelector('button').textContent), Array(6).fill('Включить'));
+  assert.deepEqual(rows().map((li) => li.textContent.match(/Hysteria2|TUIC|Shadowsocks 2022|Trojan|AnyTLS|ShadowTLS/)?.[0]), ['Hysteria2', 'TUIC', 'Shadowsocks 2022', 'Trojan', 'AnyTLS', 'ShadowTLS']);
   assert.match(rows()[0].textContent, /Hysteria2/);
 
   await click(rows()[0].querySelector('button'));
