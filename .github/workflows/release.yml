@@ -68,6 +68,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Tauri CLI (нужен для `cargo tauri`)
+        run: command -v cargo-tauri >/dev/null || cargo install tauri-cli --version "^2" --locked
       - name: Системные пакеты (Linux)
         if: runner.os == 'Linux'
         run: |
