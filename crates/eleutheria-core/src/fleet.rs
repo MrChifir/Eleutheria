@@ -15,6 +15,7 @@ use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 
+use crate::tr;
 use crate::config::all_links;
 use crate::provision::{self, UpdateNeed};
 use crate::ssh::Ssh;
@@ -48,13 +49,13 @@ impl Member {
     pub fn validate(&self) -> Result<()> {
         let ok = |s: &str, extra: &str| s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
         if self.host.is_empty() || self.host.len() > 253 || !ok(&self.host, ".:-") {
-            bail!("недопустимый адрес сервера `{}`", self.host);
+            bail!("{}", tr!(format!("недопустимый адрес сервера `{}`", self.host), format!("invalid server address `{}`", self.host)));
         }
         if self.ssh_port == 0 {
-            bail!("порт SSH 0");
+            bail!("{}", tr!("порт SSH 0", "SSH port 0"));
         }
         if self.ssh_user.is_empty() || self.ssh_user.len() > 32 || !ok(&self.ssh_user, "_-") {
-            bail!("недопустимое имя пользователя SSH `{}`", self.ssh_user);
+            bail!("{}", tr!(format!("недопустимое имя пользователя SSH `{}`", self.ssh_user), format!("invalid SSH user name `{}`", self.ssh_user)));
         }
         Ok(())
     }
@@ -74,12 +75,12 @@ impl Fleet {
     pub fn load_in(dir: &Path) -> Result<Fleet> {
         match std::fs::read_to_string(path_in(dir)) {
             Ok(raw) => {
-                let f: Fleet = serde_json::from_str(&raw).context("fleet.json: ошибка разбора")?;
+                let f: Fleet = serde_json::from_str(&raw).context(tr!("fleet.json: ошибка разбора", "fleet.json: parse error"))?;
                 f.members.iter().try_for_each(Member::validate)?;
                 Ok(f)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Fleet::default()),
-            Err(e) => Err(e).context("чтение fleet.json"),
+            Err(e) => Err(e).context(tr!("чтение fleet.json", "reading fleet.json")),
         }
     }
 
@@ -148,7 +149,7 @@ pub struct UserPlan {
 /// у кого-то из клиентов ссылка перестала бы работать.
 pub fn plan_user(name: &str, seen: &[(String, Option<Vec<User>>)]) -> Result<UserPlan> {
     if !valid_user_name(name) {
-        bail!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)");
+        bail!("{}", tr!(format!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)"), format!("invalid name `{name}` (Latin letters, digits, _ and -, up to 32 characters)")));
     }
     let found: Vec<(&String, &User)> = seen
         .iter()
@@ -156,12 +157,12 @@ pub fn plan_user(name: &str, seen: &[(String, Option<Vec<User>>)]) -> Result<Use
         .collect();
     if let Some((h0, u0)) = found.first() {
         if let Some((h, u)) = found.iter().find(|(_, u)| u.uuid != u0.uuid) {
-            bail!("пользователь `{name}` на серверах разный: у {h0} uuid {}, у {h} uuid {}. Удали лишнего вручную (`eleutheria user remove`) и повтори", u0.uuid, u.uuid);
+            bail!("{}", tr!(format!("пользователь `{name}` на серверах разный: у {h0} uuid {}, у {h} uuid {}. Удали лишнего вручную (`eleutheria user remove`) и повтори", u0.uuid, u.uuid), format!("user `{name}` differs between servers: {h0} has uuid {}, {h} has uuid {}. Remove the extra one manually (`eleutheria user remove`) and retry", u0.uuid, u.uuid)));
         }
         let secrets: Vec<&String> = found.iter().filter_map(|(_, u)| u.secret.as_ref()).collect();
         if let Some(s) = secrets.iter().find(|s| **s != secrets[0]) {
             let _ = s;
-            bail!("у пользователя `{name}` на серверах разные секреты протоколов: ссылки Hysteria2/TUIC/SS-2022 разойдутся. Удали лишнего вручную и повтори");
+            bail!("{}", tr!(format!("у пользователя `{name}` на серверах разные секреты протоколов: ссылки Hysteria2/TUIC/SS-2022 разойдутся. Удали лишнего вручную и повтори"), format!("user `{name}` has different protocol secrets on different servers: Hysteria2/TUIC/SS-2022 links would diverge. Remove the extra one manually and retry")));
         }
     }
     let canonical = found.first().map(|(_, u)| User { name: name.to_string(), uuid: u.uuid.clone(), secret: found.iter().find_map(|(_, u)| u.secret.clone()) });
@@ -196,13 +197,13 @@ impl Outcome {
 
     pub fn describe(&self) -> String {
         match self {
-            Outcome::Unreachable(e) => format!("недоступен: {e}"),
-            Outcome::Present => "пользователь уже есть".into(),
-            Outcome::Added => "пользователь добавлен".into(),
-            Outcome::SecretFilled => "секрет дописан".into(),
-            Outcome::UpToDate(v) => format!("sing-box {v} актуален"),
+            Outcome::Unreachable(e) => tr!(format!("недоступен: {e}"), format!("unreachable: {e}")),
+            Outcome::Present => tr!("пользователь уже есть", "user already exists").into(),
+            Outcome::Added => tr!("пользователь добавлен", "user added").into(),
+            Outcome::SecretFilled => tr!("секрет дописан", "secret filled in").into(),
+            Outcome::UpToDate(v) => tr!(format!("sing-box {v} актуален"), format!("sing-box {v} is up to date")),
             Outcome::Updated { from, to } => format!("sing-box {from} → {to}"),
-            Outcome::Failed(e) => format!("ошибка: {e}"),
+            Outcome::Failed(e) => tr!(format!("ошибка: {e}"), format!("error: {e}")),
         }
     }
 }
@@ -221,12 +222,12 @@ where
     Fut: Future<Output = Result<Ssh>>,
 {
     if fleet.members.is_empty() {
-        bail!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`");
+        bail!("{}", tr!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`", "the fleet has no servers: add one with `eleutheria fleet add <IP>`"));
     }
     let mut live: Vec<(Member, Ssh, State)> = Vec::new();
     let mut results: Vec<MemberResult> = Vec::new();
     for m in &fleet.members {
-        report(&format!("{}: подключаюсь…", m.host));
+        report(&tr!(format!("{}: подключаюсь…", m.host), format!("{}: connecting…", m.host)));
         match connect(m.clone()).await {
             Err(e) => results.push(MemberResult { host: m.host.clone(), outcome: Outcome::Unreachable(format!("{e:#}")) }),
             Ok(ssh) => match users::load(&ssh).await {
@@ -251,7 +252,7 @@ where
     };
     if live.is_empty() {
         let why: Vec<String> = results.iter().map(|r| format!("{}: {}", r.host, r.outcome.describe())).collect();
-        bail!("ни один сервер парка не отвечает ({})", why.join("; "));
+        bail!("{}", tr!(format!("ни один сервер парка не отвечает ({})", why.join("; ")), format!("no fleet server is responding ({})", why.join("; "))));
     }
     // новый пользователь: uuid и секрет генерирует первый доступный сервер; секрет нужен всегда, чтобы
     // потом можно было включить пароль-протоколы на любом сервере парка
@@ -288,11 +289,11 @@ where
     Fut: Future<Output = Result<Ssh>>,
 {
     if fleet.members.is_empty() {
-        bail!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`");
+        bail!("{}", tr!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`", "the fleet has no servers: add one with `eleutheria fleet add <IP>`"));
     }
     let mut out = Vec::new();
     for m in &fleet.members {
-        report(&format!("{}: проверяю…", m.host));
+        report(&tr!(format!("{}: проверяю…", m.host), format!("{}: checking…", m.host)));
         let outcome = match connect(m.clone()).await {
             Err(e) => Outcome::Unreachable(format!("{e:#}")),
             Ok(ssh) => {
@@ -308,7 +309,7 @@ where
 
 async fn update_one(ssh: &Ssh, report: Report<'_>) -> Result<Outcome> {
     let Some(st) = provision::read_state(ssh).await? else {
-        bail!("на сервере нет установки Eleutheria");
+        bail!("{}", tr!("на сервере нет установки Eleutheria", "Eleutheria is not installed on the server"));
     };
     if provision::update_need(Some(&st.singbox), crate::singbox::VERSION) == UpdateNeed::UpToDate {
         return Ok(Outcome::UpToDate(st.singbox));
@@ -332,12 +333,12 @@ where
     Fut: Future<Output = Result<Ssh>>,
 {
     if fleet.members.is_empty() {
-        bail!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`");
+        bail!("{}", tr!("в парке нет серверов: добавь командой `eleutheria fleet add <IP>`", "the fleet has no servers: add one with `eleutheria fleet add <IP>`"));
     }
     let mut links: Vec<String> = Vec::new();
     let mut results = Vec::new();
     for m in &fleet.members {
-        report(&format!("{}: читаю состояние…", m.host));
+        report(&tr!(format!("{}: читаю состояние…", m.host), format!("{}: reading state…", m.host)));
         let outcome = match connect(m.clone()).await {
             Err(e) => Outcome::Unreachable(format!("{e:#}")),
             Ok(ssh) => {
@@ -346,7 +347,7 @@ where
                 match st {
                     Err(e) => Outcome::Failed(format!("{e:#}")),
                     Ok(st) => match st.user(name) {
-                        None => Outcome::Failed(format!("пользователя `{name}` на этом сервере нет (`eleutheria fleet user-add {name}`)")),
+                        None => Outcome::Failed(tr!(format!("пользователя `{name}` на этом сервере нет (`eleutheria fleet user-add {name}`)"), format!("user `{name}` is not on this server (`eleutheria fleet user-add {name}`)"))),
                         Some(u) => match all_links(&m.host, &st, u) {
                             Ok(ls) => {
                                 links.extend(ls.into_iter().map(|l| l.url));
@@ -362,7 +363,7 @@ where
     }
     if links.is_empty() {
         let why: Vec<String> = results.iter().map(|r| format!("{}: {}", r.host, r.outcome.describe())).collect();
-        bail!("ни одной ссылки собрать не удалось ({})", why.join("; "));
+        bail!("{}", tr!(format!("ни одной ссылки собрать не удалось ({})", why.join("; ")), format!("could not build any links ({})", why.join("; "))));
     }
     Ok((subscription_body(&links), results))
 }

@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Result};
 
+use crate::tr;
 use crate::provision::{apply_config, read_state, BIN};
 use crate::ssh::Ssh;
 use crate::state::{valid_user_name, State, User};
@@ -10,23 +11,23 @@ use crate::tx::Report;
 pub async fn load(ssh: &Ssh) -> Result<State> {
     match read_state(ssh).await? {
         Some(s) => Ok(s),
-        None => bail!("на сервере нет состояния eleutheria. Сначала выполни `eleutheria provision`."),
+        None => bail!("{}", tr!("на сервере нет состояния eleutheria. Сначала выполни `eleutheria provision`.", "no Eleutheria state on the server. Run `eleutheria provision` first.")),
     }
 }
 
 pub async fn add(ssh: &Ssh, name: &str, report: Report<'_>) -> Result<(State, User)> {
     if !valid_user_name(name) {
-        bail!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)");
+        bail!("{}", tr!(format!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)"), format!("invalid name `{name}` (Latin letters, digits, _ and -, up to 32 characters)")));
     }
     let mut st = load(ssh).await?;
     if st.user(name).is_some() {
-        bail!("пользователь `{name}` уже существует");
+        bail!("{}", tr!(format!("пользователь `{name}` уже существует"), format!("user `{name}` already exists")));
     }
     let uuid = ssh.run_ok(&format!("{BIN} generate uuid")).await?;
     let secret = if st.protocols.enabled.is_empty() { None } else { Some(ssh.run_ok(&format!("{BIN} generate rand --hex 16")).await?) };
     let user = User { name: name.to_string(), uuid, secret };
     st.users.push(user.clone());
-    report("Применяю конфиг…");
+    report(tr!("Применяю конфиг…", "Applying the config…"));
     apply_config(ssh, &st, report).await?;
     Ok((st, user))
 }
@@ -39,7 +40,7 @@ pub async fn add_existing(ssh: &Ssh, user: &User, report: Report<'_>) -> Result<
     if !merge_user(&mut st, user)? {
         return Ok(st);
     }
-    report("Применяю конфиг…");
+    report(tr!("Применяю конфиг…", "Applying the config…"));
     apply_config(ssh, &st, report).await?;
     Ok(st)
 }
@@ -47,16 +48,16 @@ pub async fn add_existing(ssh: &Ssh, user: &User, report: Report<'_>) -> Result<
 /// Вносит пользователя в состояние. true = состояние изменилось.
 pub fn merge_user(st: &mut State, user: &User) -> Result<bool> {
     if !valid_user_name(&user.name) {
-        bail!("недопустимое имя `{}`", user.name);
+        bail!("{}", tr!(format!("недопустимое имя `{}`", user.name), format!("invalid name `{}`", user.name)));
     }
     match st.users.iter_mut().find(|u| u.name == user.name) {
         None => {
             st.users.push(user.clone());
             Ok(true)
         }
-        Some(u) if u.uuid != user.uuid => bail!("пользователь `{}` уже есть с другим uuid", user.name),
+        Some(u) if u.uuid != user.uuid => bail!("{}", tr!(format!("пользователь `{}` уже есть с другим uuid", user.name), format!("user `{}` already exists with a different uuid", user.name))),
         Some(u) => match (&u.secret, &user.secret) {
-            (Some(a), Some(b)) if a != b => bail!("у пользователя `{}` уже есть другой секрет", user.name),
+            (Some(a), Some(b)) if a != b => bail!("{}", tr!(format!("у пользователя `{}` уже есть другой секрет", user.name), format!("user `{}` already has a different secret", user.name))),
             (None, Some(_)) => {
                 u.secret = user.secret.clone();
                 Ok(true)
@@ -69,13 +70,13 @@ pub fn merge_user(st: &mut State, user: &User) -> Result<bool> {
 pub async fn remove(ssh: &Ssh, name: &str, report: Report<'_>) -> Result<State> {
     let mut st = load(ssh).await?;
     if st.user(name).is_none() {
-        bail!("пользователя `{name}` нет на сервере");
+        bail!("{}", tr!(format!("пользователя `{name}` нет на сервере"), format!("user `{name}` is not on the server")));
     }
     if st.users.len() == 1 {
-        bail!("нельзя удалить последнего пользователя");
+        bail!("{}", tr!("нельзя удалить последнего пользователя", "cannot remove the last user"));
     }
     st.users.retain(|u| u.name != name);
-    report("Применяю конфиг…");
+    report(tr!("Применяю конфиг…", "Applying the config…"));
     apply_config(ssh, &st, report).await?;
     Ok(st)
 }

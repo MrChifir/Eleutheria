@@ -1,16 +1,15 @@
+import { t } from './i18n.js';
 // Модель блока «Категории трафика»: чистые функции без DOM (проверяются в Node).
 
-export const CLASS_TEXT = {
-  PROTOCOL_BLOCKED: 'протокол заблокирован, нужен другой протокол этого сервера',
-  SERVER_IP_BLOCKED: 'адрес сервера не отвечает, нужен другой сервер',
-  EXIT_BLOCKED_BY_SITE: 'сайт не пускает выходной IP этого сервера',
-  UNCLASSIFIED: 'причина не определена (сравнить не с чем)',
-};
+export const CLASS_TEXT = Object.fromEntries(
+  ['PROTOCOL_BLOCKED', 'SERVER_IP_BLOCKED', 'EXIT_BLOCKED_BY_SITE', 'UNCLASSIFIED'].map((k) => [k, undefined]),
+);
+for (const k of Object.keys(CLASS_TEXT)) Object.defineProperty(CLASS_TEXT, k, { enumerable: true, get: () => t(`cls.${k}`) });
 
 export const TUNNEL = 'canary';
 
 export function classText(c) {
-  return CLASS_TEXT[c] || '';
+  return Object.hasOwn(CLASS_TEXT, c) ? CLASS_TEXT[c] : '';
 }
 
 /** Состояние строки: ok | warn | bad | unknown. */
@@ -24,18 +23,18 @@ export function rowState(pairs) {
 
 /** Короткий текст строки: что именно не так (первый отказавший путь) или лучшая задержка. */
 export function rowText(pairs, state) {
-  if (state === 'unknown') return 'нет данных';
+  if (state === 'unknown') return t('row.nodata');
   if (state === 'ok') {
     const ms = pairs.map((p) => p.ms).filter((x) => typeof x === 'number');
-    return ms.length ? `работает, ${Math.min(...ms)} мс` : 'работает';
+    return ms.length ? t('row.okMs', { ms: Math.min(...ms) }) : t('row.ok');
   }
   const bad = pairs.find((p) => p.health === 'failed') || pairs.find((p) => p.health === 'suspect') || pairs.find((p) => p.degraded);
   if (!bad) return '';
   if (bad.health === 'failed') {
     const why = classText(bad.class);
-    return `${bad.server}: недоступно${why ? ', ' + why : ''}`;
+    return t('row.failed', { server: bad.server, why: why ? ', ' + why : '' });
   }
-  return bad.health === 'suspect' ? `${bad.server}: проверяю, был отказ` : `${bad.server}: работает медленно`;
+  return bad.health === 'suspect' ? t('row.suspect', { server: bad.server }) : t('row.slow', { server: bad.server });
 }
 
 /** Строки таблицы: сначала туннель, затем категории в порядке списка. */
@@ -43,11 +42,11 @@ export function rows(categories, prober) {
   const pairs = prober ? prober.pairs : [];
   const by = (id) => pairs.filter((p) => p.category === id);
   const out = [];
-  const t = by(TUNNEL);
-  if (prober) out.push({ id: TUNNEL, title: 'Туннель', enabled: true, state: rowState(t), text: rowText(t, rowState(t)) });
+  const tun = by(TUNNEL);
+  if (prober) out.push({ id: TUNNEL, title: t('row.tunnel'), enabled: true, state: rowState(tun), text: rowText(tun, rowState(tun)) });
   for (const c of categories) {
     if (!c.enabled) {
-      out.push({ id: c.id, title: c.title, enabled: false, state: 'unknown', text: 'выключено: идёт общим маршрутом' });
+      out.push({ id: c.id, title: c.title, enabled: false, state: 'unknown', text: t('row.disabled') });
       continue;
     }
     const ps = by(c.id);

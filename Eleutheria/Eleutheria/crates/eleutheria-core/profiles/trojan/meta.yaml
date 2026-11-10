@@ -1,8 +1,0 @@
-schema: 1
-id: trojan
-name: Trojan
-description: "TCP + TLS, трафик выглядит как обычный HTTPS. Самоподписанный сертификат, клиент закрепляет ключ. Без своего домена менее скрытен, чем Reality."
-transport: tcp
-default_port: 2083
-needs_cert: true
-password: hex32

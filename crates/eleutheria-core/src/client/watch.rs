@@ -14,6 +14,7 @@ use super::config::{server_tag, PROBE_USER};
 use super::profile::Server;
 use super::prober::*;
 use crate::store::{config_dir, write_secret_file};
+use crate::tr;
 
 /// Как достучаться до запущенного sing-box.
 #[derive(Clone, Debug)]
@@ -40,7 +41,7 @@ pub fn make_plan(servers: &[Server], selected: Option<&str>, categories: &[Categ
         targets.extend(categories.iter().filter(|c| c.enabled).map(|c| ProbeTarget { id: c.id.clone(), url: c.probe_url.clone() }));
     }
     let pinned = match selected {
-        Some(n) => Some(server_tag(servers.iter().position(|s| s.name == n).with_context(|| format!("сервера `{n}` нет в списке"))?)),
+        Some(n) => Some(server_tag(servers.iter().position(|s| s.name == n).with_context(|| tr!(format!("сервера `{n}` нет в списке"), format!("server `{n}` is not in the list")))?)),
         None => None,
     };
     Ok(ProbePlan { ports, targets, outbounds, pinned })
@@ -51,7 +52,7 @@ fn alloc_ports(tags: &[String]) -> Result<Vec<ProbePort>> {
     let mut held = Vec::new();
     let mut ports = Vec::new();
     for t in tags {
-        let l = TcpListener::bind(("127.0.0.1", 0)).context("нет свободного порта для пробного входа")?;
+        let l = TcpListener::bind(("127.0.0.1", 0)).context(tr!("нет свободного порта для пробного входа", "no free port for the probe inbound"))?;
         ports.push(ProbePort { tag: t.clone(), port: l.local_addr()?.port() });
         held.push(l);
     }
@@ -327,7 +328,7 @@ impl Watcher {
         let entries = classify(&round, &cats, &self.cfg.degraded);
         let transitions = self.tracker.apply(&entries, &round);
         for t in &transitions {
-            let what = if t.category == CANARY { "туннель".to_string() } else { format!("категория {}", t.category) };
+            let what = if t.category == CANARY { tr!("туннель", "tunnel").to_string() } else { tr!(format!("категория {}", t.category), format!("category {}", t.category)) };
             let class = t.class.map(|c| format!(" [{}]", c.as_str())).unwrap_or_default();
             self.log(format!("{} · {}: {:?} → {:?}{class}", self.name_of(&t.tag), what, t.from, t.to));
         }
@@ -337,10 +338,10 @@ impl Watcher {
         let mut applied = Vec::new();
         for a in &actions {
             let (sel, to, why, verb) = match a {
-                Action::Pin { selector, tag, reason, .. } => (selector, tag, reason, "переключено на"),
-                Action::Release { selector, to, reason, .. } => (selector, to, reason, "возвращено на"),
+                Action::Pin { selector, tag, reason, .. } => (selector, tag, reason, tr!("переключено на", "switched to")),
+                Action::Release { selector, to, reason, .. } => (selector, to, reason, tr!("возвращено на", "returned to")),
             };
-            let target = if to == "proxy" { "общий маршрут".to_string() } else { self.name_of(to) };
+            let target = if to == "proxy" { tr!("общий маршрут", "common route").to_string() } else { self.name_of(to) };
             if self.cfg.switch {
                 match set_selector(&self.link, sel, to).await {
                     Ok(()) => {
@@ -348,10 +349,10 @@ impl Watcher {
                         self.log(m.clone());
                         applied.push(m);
                     }
-                    Err(e) => applied.push(format!("{sel}: не удалось переключить на {target}: {e:#}")),
+                    Err(e) => applied.push(tr!(format!("{sel}: не удалось переключить на {target}: {e:#}"), format!("{sel}: failed to switch to {target}: {e:#}"))),
                 }
             } else {
-                applied.push(format!("{sel}: было бы {verb} {target} ({why})"));
+                applied.push(tr!(format!("{sel}: было бы {verb} {target} ({why})"), format!("{sel}: would be {verb} {target} ({why})")));
             }
         }
         self.save();
@@ -387,7 +388,7 @@ pub fn render_matrix(round: &Round, plan: &ProbePlan) -> String {
         r.extend(ids.iter().map(|id| round.results.get(&(o.tag.clone(), id.to_string())).map(Outcome::brief).unwrap_or_else(|| "-".into())));
         rows.push(r);
     }
-    let mut r = vec!["напрямую".to_string()];
+    let mut r = vec![tr!("напрямую", "direct").to_string()];
     r.extend(ids.iter().map(|id| round.direct.get(*id).map(Outcome::brief).unwrap_or_else(|| "-".into())));
     rows.push(r);
     let w: Vec<usize> = (0..rows[0].len()).map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0)).collect();

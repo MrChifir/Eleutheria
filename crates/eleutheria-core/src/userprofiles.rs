@@ -19,6 +19,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::tr;
 use crate::profiles::{self, Profile, SCHEMA};
 use crate::state::Proto;
 
@@ -85,29 +86,29 @@ pub fn root() -> PathBuf {
 }
 
 fn read_regular(path: &Path) -> Result<String> {
-    let md = fs::symlink_metadata(path).with_context(|| format!("{}: нет файла", path.display()))?;
+    let md = fs::symlink_metadata(path).with_context(|| tr!(format!("{}: нет файла", path.display()), format!("{}: no such file", path.display())))?;
     if !md.file_type().is_file() {
-        bail!("{}: не обычный файл (ссылки и устройства запрещены)", path.display());
+        bail!("{}", tr!(format!("{}: не обычный файл (ссылки и устройства запрещены)", path.display()), format!("{}: not a regular file (links and devices are forbidden)", path.display())));
     }
     if md.len() > MAX_FILE {
-        bail!("{}: больше {} КиБ", path.display(), MAX_FILE / 1024);
+        bail!("{}", tr!(format!("{}: больше {} КиБ", path.display(), MAX_FILE / 1024), format!("{}: larger than {} KiB", path.display(), MAX_FILE / 1024)));
     }
-    String::from_utf8(fs::read(path)?).map_err(|_| anyhow!("{}: не UTF-8", path.display()))
+    String::from_utf8(fs::read(path)?).map_err(|_| anyhow!(tr!(format!("{}: не UTF-8", path.display()), format!("{}: not UTF-8", path.display()))))
 }
 
 /// Читает папку профиля и проверяет её целиком. Ничего не пишет.
 pub fn load_dir(dir: &Path) -> Result<Candidate> {
-    let md = fs::symlink_metadata(dir).with_context(|| format!("{}: нет папки", dir.display()))?;
+    let md = fs::symlink_metadata(dir).with_context(|| tr!(format!("{}: нет папки", dir.display()), format!("{}: no such folder", dir.display())))?;
     if !md.file_type().is_dir() {
-        bail!("{}: не папка", dir.display());
+        bail!("{}", tr!(format!("{}: не папка", dir.display()), format!("{}: not a folder", dir.display())));
     }
     for e in fs::read_dir(dir)? {
         let name = e?.file_name().to_string_lossy().to_string();
         if name == "install.sh" {
-            bail!("install.sh не поддерживается: скрипт выполнялся бы на сервере от root, а сторонним профилям это запрещено");
+            bail!("{}", tr!("install.sh не поддерживается: скрипт выполнялся бы на сервере от root, а сторонним профилям это запрещено", "install.sh is not supported: the script would run on the server as root, which is forbidden for third-party profiles"));
         }
         if !FILES.contains(&name.as_str()) {
-            bail!("лишний файл `{name}`: в профиле допустимы только {}", FILES.join(", "));
+            bail!("{}", tr!(format!("лишний файл `{name}`: в профиле допустимы только {}", FILES.join(", ")), format!("unexpected file `{name}`: a profile may contain only {}", FILES.join(", "))));
         }
     }
     let files = Files {
@@ -124,28 +125,28 @@ pub fn validate(f: &Files) -> Result<Profile> {
     let p = Profile::parse(&f.meta, &f.server, &f.client)?;
     let m = &p.manifest;
     if Proto::from_id(&m.id).is_some() || RESERVED_IDS.contains(&m.id.as_str()) {
-        bail!("id `{}` занят встроенным профилем или зарезервирован", m.id);
+        bail!("{}", tr!(format!("id `{}` занят встроенным профилем или зарезервирован", m.id), format!("id `{}` is taken by a built-in profile or reserved", m.id)));
     }
-    if m.description.chars().count() > 600 || m.description.chars().any(|c| c.is_control() && c != '\n') {
-        bail!("meta.yaml: description длиннее 600 символов или с управляющими символами");
+    if [Some(m.description.as_str()), m.description_en.as_deref()].into_iter().flatten().any(|d| d.chars().count() > 600 || d.chars().any(|c| c.is_control() && c != '\n')) {
+        bail!("{}", tr!("meta.yaml: description длиннее 600 символов или с управляющими символами", "meta.yaml: description is longer than 600 characters or contains control characters"));
     }
     if m.params.len() > 16 || m.params.iter().any(|(_, v)| v.chars().count() > 256 || v.chars().any(char::is_control)) {
-        bail!("meta.yaml: params: не больше 16 значений до 256 символов без управляющих");
+        bail!("{}", tr!("meta.yaml: params: не больше 16 значений до 256 символов без управляющих", "meta.yaml: params: at most 16 values of up to 256 characters, no control characters"));
     }
     let (st, ct) = p.templates();
     // ws_path (секретный путь WebSocket) и домен CDN есть только у встроенного vless-ws: сторонним профилям их не выдаём
     check_vars(st, &["port", "sni", "cert_path", "key_path", "server_key", "u", "param"], true)?;
     check_vars(ct, &["tag", "host", "port", "uuid", "sni", "password", "method", "pin_list", "param"], false)?;
     if m.server_key.is_some() && !st_uses(st, "server_key") {
-        bail!("meta.yaml: server_key задан, а серверный шаблон не использует {{{{server_key}}}}");
+        bail!("{}", tr!(format!("meta.yaml: server_key задан, а серверный шаблон не использует {{{{server_key}}}}"), format!("meta.yaml: server_key is set, but the server template does not use {{{{server_key}}}}")));
     }
     if m.server_key.is_none() && st_uses(st, "server_key") {
-        bail!("серверный шаблон использует {{{{server_key}}}}, а в meta.yaml нет server_key");
+        bail!("{}", tr!(format!("серверный шаблон использует {{{{server_key}}}}, а в meta.yaml нет server_key"), format!("the server template uses {{{{server_key}}}}, but meta.yaml has no server_key")));
     }
 
-    let server = p.render_server(&sample_server_vars()).context("пробная подстановка серверного шаблона")?;
+    let server = p.render_server(&sample_server_vars()).context(tr!("пробная подстановка серверного шаблона", "trial substitution of the server template"))?;
     check_inbound(&server, &m.id)?;
-    let client = p.render_client(&sample_client_vars()).context("пробная подстановка клиентского шаблона")?;
+    let client = p.render_client(&sample_client_vars()).context(tr!("пробная подстановка клиентского шаблона", "trial substitution of the client template"))?;
     check_outbound(&client)?;
     Ok(p)
 }
@@ -179,7 +180,7 @@ fn check_vars(tpl: &Value, roots: &[&str], server: bool) -> Result<()> {
     for n in names {
         let root = n.split('.').next().unwrap_or("");
         if !roots.contains(&root) {
-            bail!("неизвестная переменная `{n}` (допустимы: {})", roots.join(", "));
+            bail!("{}", tr!(format!("неизвестная переменная `{n}` (допустимы: {})", roots.join(", ")), format!("unknown variable `{n}` (allowed: {})", roots.join(", "))));
         }
     }
     fn walk(v: &Value, server: bool) -> Result<()> {
@@ -187,10 +188,10 @@ fn check_vars(tpl: &Value, roots: &[&str], server: bool) -> Result<()> {
             Value::Object(m) => {
                 if m.contains_key("$each") {
                     if !server {
-                        bail!("`$each` в клиентском шаблоне запрещён");
+                        bail!("{}", tr!("`$each` в клиентском шаблоне запрещён", "`$each` is forbidden in the client template"));
                     }
                     if m["$each"] != json!("users") || m.get("as") != Some(&json!("u")) {
-                        bail!("`$each` допустим только как {{\"$each\":\"users\",\"as\":\"u\",...}}");
+                        bail!("{}", tr!(format!("`$each` допустим только как {{\"$each\":\"users\",\"as\":\"u\",...}}"), format!("`$each` is allowed only as {{\"$each\":\"users\",\"as\":\"u\",...}}")));
                     }
                 }
                 m.values().try_for_each(|x| walk(x, server))
@@ -208,10 +209,10 @@ fn walk_keys(v: &Value, allow_path: &dyn Fn(&str, &Value) -> bool) -> Result<()>
         Value::Object(m) => {
             for (k, x) in m {
                 if FORBIDDEN_KEYS.contains(&k.as_str()) {
-                    bail!("ключ `{k}` запрещён в сторонних профилях");
+                    bail!("{}", tr!(format!("ключ `{k}` запрещён в сторонних профилях"), format!("key `{k}` is forbidden in third-party profiles")));
                 }
                 if k.ends_with("_path") && !allow_path(k, x) {
-                    bail!("ключ `{k}` читает файл и запрещён в сторонних профилях");
+                    bail!("{}", tr!(format!("ключ `{k}` читает файл и запрещён в сторонних профилях"), format!("key `{k}` reads a file and is forbidden in third-party profiles")));
                 }
                 walk_keys(x, allow_path)?;
             }
@@ -223,9 +224,9 @@ fn walk_keys(v: &Value, allow_path: &dyn Fn(&str, &Value) -> bool) -> Result<()>
 }
 
 fn check_type(v: &Value, what: &str) -> Result<()> {
-    let t = v.get("type").and_then(Value::as_str).ok_or_else(|| anyhow!("{what}: нет type"))?;
+    let t = v.get("type").and_then(Value::as_str).ok_or_else(|| anyhow!(tr!(format!("{what}: нет type"), format!("{what}: no type"))))?;
     if !TYPES.contains(&t) {
-        bail!("{what}: тип `{t}` не разрешён (допустимы: {})", TYPES.join(", "));
+        bail!("{}", tr!(format!("{what}: тип `{t}` не разрешён (допустимы: {})", TYPES.join(", ")), format!("{what}: type `{t}` is not allowed (allowed: {})", TYPES.join(", "))));
     }
     Ok(())
 }
@@ -233,15 +234,15 @@ fn check_type(v: &Value, what: &str) -> Result<()> {
 fn check_inbound(v: &Value, id: &str) -> Result<()> {
     check_type(v, "inbound")?;
     if v.get("tag") != Some(&json!(id)) {
-        bail!("inbound: tag должен совпадать с id профиля (`{id}`)");
+        bail!("{}", tr!(format!("inbound: tag должен совпадать с id профиля (`{id}`)"), format!("inbound: tag must match the profile id (`{id}`)")));
     }
     if let Some(l) = v.get("listen") {
         if l != &json!("::") {
-            bail!("inbound: listen допустим только `::`");
+            bail!("{}", tr!("inbound: listen допустим только `::`", "inbound: listen may only be `::`"));
         }
     }
     if v.get("listen_port") != Some(&json!(S_PORT)) {
-        bail!("inbound: listen_port должен быть ровно `{{{{port}}}}`");
+        bail!("{}", tr!(format!("inbound: listen_port должен быть ровно `{{{{port}}}}`"), format!("inbound: listen_port must be exactly `{{{{port}}}}`")));
     }
     walk_keys(v, &|k, x| (k == "certificate_path" && x == &json!(S_CERT)) || (k == "key_path" && x == &json!(S_KEY)))
 }
@@ -249,7 +250,7 @@ fn check_inbound(v: &Value, id: &str) -> Result<()> {
 fn check_outbound(v: &Value) -> Result<()> {
     check_type(v, "outbound")?;
     if v.get("tag") != Some(&json!(S_TAG)) || v.get("server") != Some(&json!(S_HOST)) || v.get("server_port") != Some(&json!(S_PORT)) {
-        bail!("outbound: tag, server и server_port должны быть ровно `{{{{tag}}}}`, `{{{{host}}}}`, `{{{{port}}}}`");
+        bail!("{}", tr!(format!("outbound: tag, server и server_port должны быть ровно `{{{{tag}}}}`, `{{{{host}}}}`, `{{{{port}}}}`"), format!("outbound: tag, server and server_port must be exactly `{{{{tag}}}}`, `{{{{host}}}}`, `{{{{port}}}}`")));
     }
     walk_keys(v, &|_, _| false)
 }
@@ -301,10 +302,14 @@ impl InstallPlan {
         let (st, ct) = self.candidate.profile.templates();
         let ty = |v: &Value| v.get("type").and_then(Value::as_str).unwrap_or("?").to_string();
         vec![
-            format!("{} (`{}`), отпечаток {}", m.name, m.id, &self.candidate.files.digest()[..16]),
-            format!("сервер: inbound {} на порту {} по умолчанию", ty(st), m.default_port),
-            format!("клиент: outbound {}", ty(ct)),
-            if m.needs_cert { "читает сертификат и ключ сервера, которые создаёт Eleutheria".into() } else { "сертификат не нужен".into() },
+            tr!(format!("{} (`{}`), отпечаток {}", m.display_name(), m.id, &self.candidate.files.digest()[..16]), format!("{} (`{}`), fingerprint {}", m.display_name(), m.id, &self.candidate.files.digest()[..16])),
+            tr!(format!("сервер: inbound {} на порту {} по умолчанию", ty(st), m.default_port), format!("server: inbound {} on port {} by default", ty(st), m.default_port)),
+            tr!(format!("клиент: outbound {}", ty(ct)), format!("client: outbound {}", ty(ct))),
+            if m.needs_cert {
+                tr!("читает сертификат и ключ сервера, которые создаёт Eleutheria".into(), "reads the server certificate and key created by Eleutheria".into())
+            } else {
+                tr!("сертификат не нужен".into(), "no certificate needed".into())
+            },
         ]
     }
 }
@@ -360,7 +365,7 @@ pub fn commit_in(root: &Path, plan: &InstallPlan) -> Result<PathBuf> {
         if old.exists() {
             let _ = fs::rename(&old, &dst);
         }
-        return Err(e).context("не удалось поставить профиль на место, прежняя версия возвращена");
+        return Err(e).context(tr!("не удалось поставить профиль на место, прежняя версия возвращена", "failed to put the profile in place, the previous version was restored"));
     }
     let _ = fs::remove_dir_all(&old);
     Ok(dst)
@@ -375,7 +380,7 @@ pub fn list_in(root: &Path) -> Vec<(String, Result<Candidate>)> {
         .filter(|n| !n.starts_with('.'))
         .map(|n| {
             let r = load_dir(&root.join(&n)).and_then(|c| {
-                if c.profile.manifest.id == n { Ok(c) } else { Err(anyhow!("имя папки `{n}` не совпадает с id `{}`", c.profile.manifest.id)) }
+                if c.profile.manifest.id == n { Ok(c) } else { Err(anyhow!(tr!(format!("имя папки `{n}` не совпадает с id `{}`", c.profile.manifest.id), format!("folder name `{n}` does not match id `{}`", c.profile.manifest.id)))) }
             });
             (n, r)
         })
@@ -387,11 +392,11 @@ pub fn list_in(root: &Path) -> Vec<(String, Result<Candidate>)> {
 /// Один установленный профиль: проверка при каждом чтении, имя папки обязано совпасть с id.
 pub fn load_installed_in(root: &Path, id: &str) -> Result<Candidate> {
     if !profiles::valid_id(id) {
-        bail!("недопустимый id `{id}`");
+        bail!("{}", tr!(format!("недопустимый id `{id}`"), format!("invalid id `{id}`")));
     }
     let c = load_dir(&root.join(id))?;
     if c.profile.manifest.id != id {
-        bail!("имя папки `{id}` не совпадает с id `{}`", c.profile.manifest.id);
+        bail!("{}", tr!(format!("имя папки `{id}` не совпадает с id `{}`", c.profile.manifest.id), format!("folder name `{id}` does not match id `{}`", c.profile.manifest.id)));
     }
     Ok(c)
 }
@@ -400,17 +405,17 @@ pub fn load_installed_in(root: &Path, id: &str) -> Result<Candidate> {
 /// Ограничения нужны helper'у, который получает их по IPC: число профилей, размер файлов, уникальность id.
 pub fn profile_set(files: &[Files]) -> Result<crate::client::config::ProfileSet> {
     if files.len() > 16 {
-        bail!("слишком много сторонних профилей (не больше 16)");
+        bail!("{}", tr!("слишком много сторонних профилей (не больше 16)", "too many third-party profiles (at most 16)"));
     }
     let mut set = crate::client::config::ProfileSet::new();
     for f in files {
         if FILES.iter().any(|n| f.get(n).len() as u64 > MAX_FILE) {
-            bail!("файл стороннего профиля больше {} КиБ", MAX_FILE / 1024);
+            bail!("{}", tr!(format!("файл стороннего профиля больше {} КиБ", MAX_FILE / 1024), format!("third-party profile file is larger than {} KiB", MAX_FILE / 1024)));
         }
         let p = validate(f)?;
         let id = p.manifest.id.clone();
         if set.insert(id.clone(), p).is_some() {
-            bail!("профиль `{id}` передан дважды");
+            bail!("{}", tr!(format!("профиль `{id}` передан дважды"), format!("profile `{id}` was passed twice")));
         }
     }
     Ok(set)
@@ -426,13 +431,13 @@ pub fn files_for_servers(root: &Path, servers: &[crate::client::profile::Server]
 
 pub fn remove_in(root: &Path, id: &str) -> Result<()> {
     if !profiles::valid_id(id) {
-        bail!("недопустимый id `{id}`");
+        bail!("{}", tr!(format!("недопустимый id `{id}`"), format!("invalid id `{id}`")));
     }
     let d = root.join(id);
     if !d.exists() {
-        bail!("профиль `{id}` не установлен");
+        bail!("{}", tr!(format!("профиль `{id}` не установлен"), format!("profile `{id}` is not installed")));
     }
-    fs::remove_dir_all(&d).with_context(|| format!("не удалось удалить {}", d.display()))
+    fs::remove_dir_all(&d).with_context(|| tr!(format!("не удалось удалить {}", d.display()), format!("failed to remove {}", d.display())))
 }
 
 pub fn schema() -> u32 {

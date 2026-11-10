@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use eleutheria_app as app;
+use eleutheria_core::tr;
 use eleutheria_app::partners::{self, Partner};
 use eleutheria_app::server::{self, HostKeyProbe, ProvisionRequest, ProvisionResult, ServerUpdateDto, SshConn, UsersView};
 use eleutheria_app::update::{self, CheckOutcome, UpdateInfo};
@@ -15,6 +16,19 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 fn msg(e: anyhow::Error) -> String {
     format!("{e:#}")
+}
+
+/// Язык сообщений бэкенда (ошибки, ход установки, события). Выбирается в интерфейсе.
+#[tauri::command]
+fn set_language(lang: String) {
+    if let Some(l) = eleutheria_core::i18n::parse(&lang) {
+        eleutheria_core::i18n::set(l);
+    }
+}
+
+#[tauri::command]
+fn get_language() -> String {
+    if eleutheria_core::i18n::is_en() { "en" } else { "ru" }.to_string()
 }
 
 #[tauri::command]
@@ -167,7 +181,7 @@ async fn check_update(app: AppHandle, pending: State<'_, Pending>) -> Result<Che
     update::mark_checked(update::now_unix());
     let mut b = app.updater_builder().timeout(Duration::from_secs(20));
     if let Some(p) = update::proxy_url(&app::overview().await) {
-        b = b.proxy(p.parse().map_err(|_| "некорректный адрес прокси".to_string())?);
+        b = b.proxy(p.parse().map_err(|_| tr!("некорректный адрес прокси", "invalid proxy address").to_string())?);
     }
     let found = b.build().map_err(upd_err)?.check().await.map_err(upd_err)?;
     *pending.bytes.lock().unwrap() = None;
@@ -187,7 +201,7 @@ async fn check_update(app: AppHandle, pending: State<'_, Pending>) -> Result<Che
 /// Шаг 1: скачать и проверить подпись. Ход уходит событием `update-progress`. Ничего не останавливается.
 #[tauri::command]
 async fn download_update(app: AppHandle, pending: State<'_, Pending>) -> Result<(), String> {
-    let u = pending.update.lock().unwrap().clone().ok_or("обновление не найдено: сначала выполни проверку")?;
+    let u = pending.update.lock().unwrap().clone().ok_or(tr!("обновление не найдено: сначала выполни проверку", "no update found: run the check first"))?;
     let mut done: u64 = 0;
     let a = app.clone();
     let bytes = u
@@ -207,12 +221,12 @@ async fn download_update(app: AppHandle, pending: State<'_, Pending>) -> Result<
 /// Шаг 2: установить скачанный пакет и перезапустить приложение (на Windows установщик сам завершает приложение).
 #[tauri::command]
 fn install_update(app: AppHandle, pending: State<'_, Pending>) -> Result<(), String> {
-    let u = pending.update.lock().unwrap().clone().ok_or("обновление не найдено")?;
-    let bytes = pending.bytes.lock().unwrap().take().ok_or("пакет ещё не скачан")?;
+    let u = pending.update.lock().unwrap().clone().ok_or(tr!("обновление не найдено", "no update found"))?;
+    let bytes = pending.bytes.lock().unwrap().take().ok_or(tr!("пакет ещё не скачан", "the package has not been downloaded yet"))?;
     // откат: копия текущей установки и сторож. Нет возможности откатываться (.deb, нет CLI рядом) не мешает
     // обновлению, но пользователь об этом узнаёт.
     if let Err(e) = update::arm_rollback(&u.current_version, &u.version) {
-        let _ = app.emit("update-warning", format!("Автоматический откат при неудачном обновлении недоступен: {e:#}"));
+        let _ = app.emit("update-warning", tr!(format!("Автоматический откат при неудачном обновлении недоступен: {e:#}"), format!("Automatic rollback after a failed update is unavailable: {e:#}")));
     }
     if let Err(e) = u.install(&bytes) {
         update::disarm_rollback();
@@ -242,26 +256,26 @@ async fn import_update(app: AppHandle, file: String, sig: String) -> Result<Manu
     let (file, sig) = (std::path::PathBuf::from(clean(&file)), std::path::PathBuf::from(clean(&sig)));
     let pubkey = updater_pubkey(&app);
     if !update::pubkey_configured(&pubkey) {
-        return Err("обновления выключены: в сборке нет публичного ключа подписи".into());
+        return Err(tr!("обновления выключены: в сборке нет публичного ключа подписи", "updates are disabled: this build has no public signing key").into());
     }
     const MAX_PACKAGE: u64 = 600 * 1024 * 1024;
-    let size = std::fs::metadata(&file).map_err(|e| format!("не открыть {}: {e}", file.display()))?.len();
+    let size = std::fs::metadata(&file).map_err(|e| tr!(format!("не открыть {}: {e}", file.display()), format!("cannot open {}: {e}", file.display())))?.len();
     if size > MAX_PACKAGE {
-        return Err("файл слишком большой для пакета обновления".into());
+        return Err(tr!("файл слишком большой для пакета обновления", "the file is too large for an update package").into());
     }
-    let data = std::fs::read(&file).map_err(|e| format!("не прочитать {}: {e}", file.display()))?;
-    let sig_text = std::fs::read_to_string(&sig).map_err(|e| format!("не прочитать {}: {e}", sig.display()))?;
+    let data = std::fs::read(&file).map_err(|e| tr!(format!("не прочитать {}: {e}", file.display()), format!("cannot read {}: {e}", file.display())))?;
+    let sig_text = std::fs::read_to_string(&sig).map_err(|e| tr!(format!("не прочитать {}: {e}", sig.display()), format!("cannot read {}: {e}", sig.display())))?;
     let current = app.package_info().version.to_string();
     let version = update::verify_package(&pubkey, &data, &sig_text, &current).map_err(msg)?;
     drop(data);
     let appimage = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from);
     let plan = update::manual_install_plan(std::env::consts::OS, appimage.is_some(), &file)?;
     if let Err(e) = update::arm_rollback(&current, &version) {
-        let _ = app.emit("update-warning", format!("Автоматический откат при неудачном обновлении недоступен: {e:#}"));
+        let _ = app.emit("update-warning", tr!(format!("Автоматический откат при неудачном обновлении недоступен: {e:#}"), format!("Automatic rollback after a failed update is unavailable: {e:#}")));
     }
     match plan {
         update::ManualInstall::ReplaceAppImage => {
-            let target = appimage.ok_or("не определён путь AppImage")?;
+            let target = appimage.ok_or(tr!("не определён путь AppImage", "AppImage path could not be determined"))?;
             if let Err(e) = update::replace_file_atomically(&file, &target) {
                 update::disarm_rollback();
                 return Err(msg(e));
@@ -271,7 +285,7 @@ async fn import_update(app: AppHandle, file: String, sig: String) -> Result<Manu
         update::ManualInstall::RunInstaller { program, args } => {
             if let Err(e) = std::process::Command::new(&program).args(&args).spawn() {
                 update::disarm_rollback();
-                return Err(format!("не удалось запустить установщик: {e}"));
+                return Err(tr!(format!("не удалось запустить установщик: {e}"), format!("failed to start the installer: {e}")));
             }
             app.exit(0);
             Ok(ManualResult { version, restarting: true })
@@ -298,7 +312,7 @@ fn partners_list() -> Vec<Partner> {
 /// Открывает партнёрскую ссылку в браузере по id из белого списка. Произвольный адрес не принимается.
 #[tauri::command]
 fn open_partner(app: AppHandle, id: String) -> Result<(), String> {
-    let url = partners::url_for(&id).ok_or_else(|| "неизвестный хостинг".to_string())?;
+    let url = partners::url_for(&id).ok_or_else(|| tr!("неизвестный хостинг", "unknown hosting provider").to_string())?;
     app.opener().open_url(url, None::<&str>).map_err(upd_err)
 }
 
@@ -309,6 +323,8 @@ fn main() {
         .manage(Pending::default())
         .manage(Watcher::default())
         .invoke_handler(tauri::generate_handler![
+            set_language,
+            get_language,
             overview,
             latency,
             connect,
@@ -337,5 +353,5 @@ fn main() {
             open_partner
         ])
         .run(tauri::generate_context!())
-        .expect("не удалось запустить приложение");
+        .expect("failed to start the application");
 }

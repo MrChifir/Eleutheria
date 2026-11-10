@@ -3,7 +3,7 @@ name = "eleutheria-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Сервисный слой клиента для GUI: DTO и операции поверх eleutheria-core (без зависимости от Tauri)"
+description = "Client service layer for the GUI: DTOs and operations on top of eleutheria-core (no Tauri dependency)"
 
 [dependencies]
 eleutheria-core = { path = "../eleutheria-core" }

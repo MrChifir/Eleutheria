@@ -2,6 +2,7 @@ schema: 1
 id: trojan
 name: Trojan
 description: "TCP + TLS, трафик выглядит как обычный HTTPS. Самоподписанный сертификат, клиент закрепляет ключ. Без своего домена менее скрытен, чем Reality."
+description_en: "TCP + TLS, traffic looks like ordinary HTTPS. Self-signed certificate, the client pins the key. Less stealthy than Reality without your own domain."
 transport: tcp
 default_port: 2083
 needs_cert: true

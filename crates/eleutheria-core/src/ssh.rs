@@ -50,7 +50,7 @@ pub struct AuthRejected;
 
 impl std::fmt::Display for AuthRejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "аутентификация отклонена (проверь логин/пароль/ключ)")
+        write!(f, "{}", crate::tr!("аутентификация отклонена (проверь логин/пароль/ключ)", "authentication rejected (check login/password/key)"))
     }
 }
 
@@ -86,8 +86,8 @@ impl Ssh {
             client::connect(config, (t.host.as_str(), t.port), Client { verifier }),
         )
         .await
-        .context("таймаут подключения к серверу")?
-        .context("не удалось подключиться по SSH (неверный IP/порт или host key отклонён)")?;
+        .context(crate::tr!("таймаут подключения к серверу", "timed out connecting to the server"))?
+        .context(crate::tr!("не удалось подключиться по SSH (неверный IP/порт или host key отклонён)", "failed to connect over SSH (wrong IP/port or host key rejected)"))?;
 
         let ok = match &t.auth {
             Auth::Password(p) => handle
@@ -97,8 +97,8 @@ impl Ssh {
             Auth::KeyFile { .. } | Auth::KeyPem { .. } => {
                 let key = match &t.auth {
                     Auth::KeyFile { path, passphrase } => load_secret_key(path, passphrase.as_deref())
-                        .with_context(|| format!("не удалось прочитать ключ {path}"))?,
-                    Auth::KeyPem { pem } => decode_secret_key(pem, None).context("не удалось разобрать сохранённый SSH-ключ")?,
+                        .with_context(|| crate::tr!(format!("не удалось прочитать ключ {path}"), format!("failed to read key {path}")))?,
+                    Auth::KeyPem { pem } => decode_secret_key(pem, None).context(crate::tr!("не удалось разобрать сохранённый SSH-ключ", "failed to parse the saved SSH key"))?,
                     Auth::Password(_) => unreachable!(),
                 };
                 let hash = handle.best_supported_rsa_hash().await?.flatten();
@@ -149,7 +149,7 @@ impl Ssh {
     pub async fn run_ok(&self, cmd: &str) -> Result<String> {
         let o = self.run(cmd).await?;
         if o.code != 0 {
-            bail!("команда `{cmd}` завершилась с кодом {}: {}", o.code, o.stderr_str());
+            bail!("{}", crate::tr!(format!("команда `{cmd}` завершилась с кодом {}: {}", o.code, o.stderr_str()), format!("command `{cmd}` exited with code {}: {}", o.code, o.stderr_str())));
         }
         Ok(o.stdout_str())
     }
@@ -164,7 +164,7 @@ impl Ssh {
         );
         let o = self.run_with_stdin(&cmd, Some(data)).await?;
         if o.code != 0 {
-            bail!("загрузка {remote_path} не удалась: {}", o.stderr_str());
+            bail!("{}", crate::tr!(format!("загрузка {remote_path} не удалась: {}", o.stderr_str()), format!("upload of {remote_path} failed: {}", o.stderr_str())));
         }
         Ok(())
     }

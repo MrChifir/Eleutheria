@@ -361,3 +361,39 @@ details.faq .faq-a { padding-top: 8px; line-height: 1.55; }
 button.tour-skip { padding: 8px 12px; font-size: 14px; font-weight: 600; color: var(--muted); background: transparent; border: 0; border-radius: 999px; }
 button.tour-skip:hover { color: var(--fg); }
 button.tour-next { background: linear-gradient(180deg, #92c3ff 0%, #5693f6 55%, #3a72e0 100%); border-color: rgba(214, 232, 255, .55); }
+
+/* переключатель языка */
+.lang-btn {
+  display: inline-flex; align-self: flex-start; margin-top: auto; padding: 3px; gap: 2px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--muted);
+  border: 1px solid var(--edge); border-radius: 999px; background: rgba(8, 28, 78, .5);
+  transition: border-color .25s var(--ease-out), background .25s var(--ease-out);
+}
+.lang-btn:hover { border-color: var(--edge-strong); }
+.lang-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(91, 155, 255, .35); }
+.lang-btn span { padding: 4px 9px; border-radius: 999px; transition: background .25s var(--ease-out), color .25s var(--ease-out); }
+.lang-btn span.active { color: #fff; background: linear-gradient(180deg, #78b0ff 0%, #4a86ee 100%); }
+@media (max-width: 900px) { .lang-btn { align-self: center; flex-direction: column; } }
+
+/* окно выбора языка при первом запуске */
+.lang-overlay {
+  position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 20px;
+  background: rgba(3, 10, 32, .82); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.lang-card {
+  width: min(440px, 100%); display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 30px 28px 26px; text-align: center;
+  background: var(--glass-strong); border: 1px solid var(--edge-strong); border-radius: 30px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 24px 70px rgba(2, 8, 30, .6);
+  animation: rise .6s var(--ease-out) backwards;
+}
+.lang-logo { width: 220px; max-width: 80%; }
+.lang-card h2 { margin: 0; font-size: 20px; }
+.lang-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+.lang-opt {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 10px; cursor: pointer;
+  font: inherit; font-size: 16px; font-weight: 600; color: var(--fg);
+  border: 1px solid var(--edge); border-radius: 20px; background: rgba(8, 28, 78, .55);
+  transition: transform .2s var(--ease-out), border-color .25s, background .25s;
+}
+.lang-opt:hover, .lang-opt:focus-visible { outline: none; transform: translateY(-2px); border-color: var(--edge-strong); background: rgba(40, 90, 200, .45); }
+.lang-code { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--accent); }

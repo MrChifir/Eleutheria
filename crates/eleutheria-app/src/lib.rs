@@ -20,6 +20,7 @@ use eleutheria_core::client::watch::{self, WatchCfg, Watcher};
 use eleutheria_core::client::profile::{self, Server};
 use eleutheria_core::client::runtime::{self, ConnectOpts, Status, DEFAULT_TEST_URL};
 use eleutheria_core::ipc::{self, Request, Response, StartParams};
+use eleutheria_core::tr;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_PROXY_PORT: u16 = 7890;
@@ -154,18 +155,18 @@ pub fn classify_source(input: &str) -> Result<SourceKind> {
     let tok = input
         .split_whitespace()
         .find(|t| is_link(t) || t.starts_with("http://") || t.starts_with("https://"))
-        .ok_or_else(|| anyhow!("нужна ссылка (vless://, hysteria2://, tuic://, ss://, trojan://, anytls://) или URL подписки (http/https)"))?;
+        .ok_or_else(|| anyhow!("{}", tr!("нужна ссылка (vless://, hysteria2://, tuic://, ss://, trojan://, anytls://) или URL подписки (http/https)", "a link (vless://, hysteria2://, tuic://, ss://, trojan://, anytls://) or a subscription URL (http/https) is required")))?;
     Ok(if is_link(tok) { SourceKind::Link(tok.to_string()) } else { SourceKind::Subscription(tok.to_string()) })
 }
 
 /// Проверка запроса на подключение до любых действий в системе.
 pub fn validate_connect(servers: &[Server], req: &ConnectRequest) -> Result<()> {
     if servers.is_empty() {
-        bail!("нет серверов: добавь сервер (ссылка vless:// или подписка)");
+        bail!("{}", tr!("нет серверов: добавь сервер (ссылка vless:// или подписка)", "no servers: add a server (a vless:// link or a subscription)"));
     }
     if let Some(name) = &req.server {
         if !servers.iter().any(|s| &s.name == name) {
-            bail!("сервера `{name}` нет в списке");
+            bail!("{}", tr!(format!("сервера `{name}` нет в списке"), format!("server `{name}` is not in the list")));
         }
     }
     Ok(())
@@ -184,10 +185,10 @@ fn helper_socket() -> Option<PathBuf> {
 }
 
 async fn helper_request(req: &Request) -> Result<Response> {
-    let sock = helper_socket().ok_or_else(|| anyhow!("helper не установлен или не запущен"))?;
+    let sock = helper_socket().ok_or_else(|| anyhow!("{}", tr!("helper не установлен или не запущен", "helper is not installed or not running")))?;
     tokio::time::timeout(Duration::from_secs(5), ipc::request(&sock, req))
         .await
-        .map_err(|_| anyhow!("helper не ответил за 5 секунд"))?
+        .map_err(|_| anyhow!("{}", tr!("helper не ответил за 5 секунд", "helper did not respond within 5 seconds")))?
 }
 
 async fn helper_info() -> HelperDto {
@@ -254,7 +255,7 @@ pub async fn connect(req: ConnectRequest) -> Result<ConnectResult> {
             match helper_request(&Request::Start(params)).await? {
                 Response::Started { pid } => Ok(ConnectResult { mode: Mode::Tun, pid, listen_port: None, delay_ms: None, warning: None }),
                 Response::Error { message } => bail!("{message}"),
-                other => bail!("неожиданный ответ helper'а: {other:?}"),
+                other => bail!("{}", tr!(format!("неожиданный ответ helper'а: {other:?}"), format!("unexpected helper response: {other:?}"))),
             }
         }
     }
@@ -411,7 +412,7 @@ pub fn remove_server(name: &str) -> Result<()> {
     if profile::remove(name)? {
         Ok(())
     } else {
-        bail!("сервера `{name}` нет в списке")
+        bail!("{}", tr!(format!("сервера `{name}` нет в списке"), format!("server `{name}` is not in the list")))
     }
 }
 

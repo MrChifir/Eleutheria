@@ -17,6 +17,7 @@ use super::prober::ProbePlan;
 use super::profile::Server;
 use super::watch::{self, Link};
 use crate::singbox;
+use crate::tr;
 use crate::store::{config_dir, write_secret_file};
 
 pub const DEFAULT_TEST_URL: &str = "https://www.gstatic.com/generate_204";
@@ -137,7 +138,7 @@ async fn clash_get(m: &Meta, path: &str, timeout: Duration) -> Result<Value> {
 async fn delay(m: &Meta, tag: &str) -> Result<u64> {
     let path = format!("/proxies/{tag}/delay?url={}&timeout=5000", urlencoding::encode(&m.test_url));
     let v = clash_get(m, &path, Duration::from_secs(8)).await?;
-    v.get("delay").and_then(|d| d.as_u64()).context("в ответе нет задержки")
+    v.get("delay").and_then(|d| d.as_u64()).context(tr!("в ответе нет задержки", "no delay in the response"))
 }
 
 fn secret() -> String {
@@ -174,14 +175,14 @@ pub fn running_info() -> Option<(u32, u16)> {
 pub async fn connect(servers: &[Server], o: &ConnectOpts) -> Result<ConnectInfo> {
     if !o.test_url.starts_with("https://") {
         // Clash API sing-box подменяет http://-URL на https://www.gstatic.com, результат был бы обманчивым
-        bail!("--test-url должен начинаться с https:// (sing-box игнорирует http:// при замере задержки)");
+        bail!("{}", tr!("--test-url должен начинаться с https:// (sing-box игнорирует http:// при замере задержки)", "--test-url must start with https:// (sing-box ignores http:// when measuring latency)"));
     }
     if is_running() {
-        bail!("уже подключено. Сначала `eleutheria disconnect`");
+        bail!("{}", tr!("уже подключено. Сначала `eleutheria disconnect`", "already connected. Run `eleutheria disconnect` first"));
     }
-    for (port, what) in [(o.listen_port, "прокси"), (o.clash_port, "API управления")] {
+    for (port, what) in [(o.listen_port, tr!("прокси", "proxy")), (o.clash_port, tr!("API управления", "control API"))] {
         if TcpListener::bind(("127.0.0.1", port)).is_err() {
-            bail!("порт {port} ({what}) занят. Выбери другой (--port / --clash-port)");
+            bail!("{}", tr!(format!("порт {port} ({what}) занят. Выбери другой (--port / --clash-port)"), format!("port {port} ({what}) is in use. Pick another one (--port / --clash-port)")));
         }
     }
     let bin = singbox::ensure_local_binary().await?;
@@ -210,7 +211,7 @@ pub async fn connect(servers: &[Server], o: &ConnectOpts) -> Result<ConnectInfo>
 
     let chk = Command::new(&bin).args(["check", "-c"]).arg(&cfg_path).output()?;
     if !chk.status.success() {
-        bail!("sing-box отклонил клиентский конфиг: {}", String::from_utf8_lossy(&chk.stderr).trim());
+        bail!("{}", tr!(format!("sing-box отклонил клиентский конфиг: {}", String::from_utf8_lossy(&chk.stderr).trim()), format!("sing-box rejected the client config: {}", String::from_utf8_lossy(&chk.stderr).trim())));
     }
 
     let log_path = d.join("sing-box.log");
@@ -223,7 +224,7 @@ pub async fn connect(servers: &[Server], o: &ConnectOpts) -> Result<ConnectInfo>
             .stdout(log.try_clone()?)
             .stderr(log),
     )
-    .context("не удалось запустить sing-box")?;
+    .context(tr!("не удалось запустить sing-box", "failed to start sing-box"))?;
     let pid = child.id();
 
     let meta = Meta {
@@ -264,7 +265,7 @@ pub async fn connect(servers: &[Server], o: &ConnectOpts) -> Result<ConnectInfo>
             .collect::<Vec<_>>()
             .join("\n");
         let _ = fs::remove_file(meta_path());
-        bail!("sing-box не запустился. Лог:\n{tail}");
+        bail!("{}", tr!(format!("sing-box не запустился. Лог:\n{tail}"), format!("sing-box failed to start. Log:\n{tail}")));
     }
 
     // проверка пути до цели через выбранный сервер; для urltest даём время на первый замер
@@ -339,7 +340,7 @@ async fn status_for(m: &Meta) -> Result<Status> {
     let now = now.get("now").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let (mode, active_tag) = if now == "auto" {
         let a = clash_get(m, "/proxies/auto", Duration::from_secs(5)).await?;
-        ("авто".to_string(), a.get("now").and_then(|v| v.as_str()).unwrap_or("").to_string())
+        (tr!("авто", "auto").to_string(), a.get("now").and_then(|v| v.as_str()).unwrap_or("").to_string())
     } else {
         (name_of(&now).unwrap_or_else(|| now.clone()), now.clone())
     };

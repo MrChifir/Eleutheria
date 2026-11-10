@@ -115,7 +115,7 @@ impl<'de> Deserialize<'de> for Proto {
         let s = String::deserialize(de)?;
         // без trim и приведения регистра: в state.json идентификатор записан ровно так, как его пишет Eleutheria
         if !crate::profiles::valid_id(&s) {
-            return Err(serde::de::Error::custom(format!("недопустимый идентификатор протокола `{}`", s.chars().take(40).collect::<String>())));
+            return Err(serde::de::Error::custom(crate::tr!(format!("недопустимый идентификатор протокола `{}`", s.chars().take(40).collect::<String>()), format!("invalid protocol identifier `{}`", s.chars().take(40).collect::<String>()))));
         }
         Ok(Proto::from_id(&s).unwrap_or(Proto(Cow::Owned(s))))
     }

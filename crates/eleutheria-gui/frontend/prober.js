@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Блок «Категории трафика» на главной вкладке. Решения и тексты живут в probermodel.js.
 import * as pm from './probermodel.js';
 
@@ -47,7 +48,7 @@ export function initProber(ctx) {
   async function toggle(id, enabled) {
     try {
       await invoke('set_category', { id, enabled });
-      ctx.say('Изменение категории вступит в силу при следующем подключении.');
+      ctx.say(t('cats.changed'));
     } catch (e) {
       ctx.say(String(e), true);
     }

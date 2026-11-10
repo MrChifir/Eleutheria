@@ -28,7 +28,7 @@ pub fn arch_from_uname(m: &str) -> Result<&'static str> {
     match m.trim() {
         "x86_64" | "amd64" => Ok("amd64"),
         "aarch64" | "arm64" => Ok("arm64"),
-        other => bail!("архитектура сервера `{other}` пока не поддерживается (нужны x86_64 или aarch64)"),
+        other => bail!("{}", crate::tr!(format!("архитектура сервера `{other}` пока не поддерживается (нужны x86_64 или aarch64)"), format!("server architecture `{other}` is not supported yet (x86_64 or aarch64 required)"))),
     }
 }
 
@@ -47,12 +47,12 @@ pub fn local_platform() -> Result<(&'static str, &'static str)> {
         "linux" => "linux",
         "macos" => "darwin",
         "windows" => "windows",
-        other => bail!("клиент работает на Linux, macOS и Windows (сейчас `{other}`)"),
+        other => bail!("{}", crate::tr!(format!("клиент работает на Linux, macOS и Windows (сейчас `{other}`)"), format!("the client runs on Linux, macOS and Windows (current: `{other}`)"))),
     };
     let arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
-        other => bail!("архитектура `{other}` не поддерживается"),
+        other => bail!("{}", crate::tr!(format!("архитектура `{other}` не поддерживается"), format!("architecture `{other}` is not supported"))),
     };
     Ok((os, arch))
 }
@@ -68,7 +68,7 @@ pub async fn fetch_verified_for(os: &str, arch: &str) -> Result<Vec<u8>> {
         .iter()
         .find(|(o, a, _)| *o == os && *a == arch)
         .map(|(_, _, h)| *h)
-        .with_context(|| format!("нет закреплённого хеша для {os}-{arch}"))?;
+        .with_context(|| crate::tr!(format!("нет закреплённого хеша для {os}-{arch}"), format!("no pinned hash for {os}-{arch}")))?;
 
     let name = archive_name(os, arch);
     let path = cache_dir().join(&name);
@@ -83,7 +83,7 @@ pub async fn fetch_verified_for(os: &str, arch: &str) -> Result<Vec<u8>> {
     let url = format!("https://github.com/SagerNet/sing-box/releases/download/v{VERSION}/{name}");
     let bytes = reqwest::get(&url)
         .await
-        .with_context(|| format!("не удалось скачать {url}"))?
+        .with_context(|| crate::tr!(format!("не удалось скачать {url}"), format!("failed to download {url}")))?
         .error_for_status()?
         .bytes()
         .await?
@@ -91,7 +91,7 @@ pub async fn fetch_verified_for(os: &str, arch: &str) -> Result<Vec<u8>> {
 
     let got = hex::encode(Sha256::digest(&bytes));
     if got != expected {
-        bail!("SHA256 не совпал для {name}: ожидался {expected}, получен {got}. Установка прервана.");
+        bail!("{}", crate::tr!(format!("SHA256 не совпал для {name}: ожидался {expected}, получен {got}. Установка прервана."), format!("SHA256 mismatch for {name}: expected {expected}, got {got}. Installation aborted.")));
     }
     tokio::fs::create_dir_all(cache_dir()).await.ok();
     tokio::fs::write(&path, &bytes).await.ok();
@@ -112,14 +112,14 @@ pub fn extract_binary(tgz: &[u8]) -> Result<Vec<u8>> {
             return Ok(buf);
         }
     }
-    bail!("в архиве нет бинарника sing-box")
+    bail!("{}", crate::tr!("в архиве нет бинарника sing-box", "the archive has no sing-box binary"))
 }
 
 /// Достать из zip релиза для Windows `sing-box.exe` и все `.dll` (библиотеки лежат рядом с exe).
 /// Возвращает пары (имя файла, содержимое). Имена берутся только как последний компонент пути.
 pub fn extract_windows_bundle(zip_bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
     use std::io::Read;
-    let mut ar = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).context("повреждён zip sing-box")?;
+    let mut ar = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).context(crate::tr!("повреждён zip sing-box", "the sing-box zip is corrupted"))?;
     let mut out = Vec::new();
     for i in 0..ar.len() {
         let mut f = ar.by_index(i)?;
@@ -132,7 +132,7 @@ pub fn extract_windows_bundle(zip_bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>
         if lower == "sing-box.exe" || lower.ends_with(".dll") {
             // предел размера защищает от zip-бомбы; реальный sing-box.exe около 80 МБ
             if f.size() > 400 * 1024 * 1024 {
-                bail!("файл `{name}` в архиве слишком велик");
+                bail!("{}", crate::tr!(format!("файл `{name}` в архиве слишком велик"), format!("file `{name}` in the archive is too large")));
             }
             let mut buf = Vec::with_capacity(f.size() as usize);
             f.read_to_end(&mut buf)?;
@@ -140,7 +140,7 @@ pub fn extract_windows_bundle(zip_bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>
         }
     }
     if !out.iter().any(|(n, _)| n.eq_ignore_ascii_case("sing-box.exe")) {
-        bail!("в архиве нет sing-box.exe");
+        bail!("{}", crate::tr!("в архиве нет sing-box.exe", "the archive has no sing-box.exe"));
     }
     Ok(out)
 }
@@ -167,7 +167,7 @@ pub async fn ensure_local_binary() -> Result<PathBuf> {
             }
         }
         let tmp = dir.join(format!("{file}.part"));
-        tokio::fs::write(&tmp, exe.context("в архиве нет sing-box.exe")?).await?;
+        tokio::fs::write(&tmp, exe.context(crate::tr!("в архиве нет sing-box.exe", "the archive has no sing-box.exe"))?).await?;
         tokio::fs::rename(&tmp, &path).await?;
         return Ok(path);
     }

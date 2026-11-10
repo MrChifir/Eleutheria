@@ -13,6 +13,7 @@ use crate::profiles;
 use crate::secrets::{default_store, SecretStore};
 use crate::state::{Proto, State, User};
 use crate::store::config_dir;
+use crate::tr;
 
 /// Протокол сервера. У записей, сохранённых до M3, поля нет: они все VLESS.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,7 +167,7 @@ impl Server {
 
     /// Запись для дополнительного протокола сервера.
     pub fn for_proto(p: &Proto, host: &str, st: &State, u: &User) -> Result<Server> {
-        let ps = st.protocols.enabled.get(p).with_context(|| format!("{} на сервере не включён", p.id()))?;
+        let ps = st.protocols.enabled.get(p).with_context(|| tr!(format!("{} на сервере не включён", p.id()), format!("{} is not enabled on the server", p.id())))?;
         let prof = profiles::get(p)?;
         let name = format!("{host} {}", p.id());
         let base = Server {
@@ -186,13 +187,13 @@ impl Server {
             public_key: None,
             short_id: None,
         };
-        let tls = || st.protocols.tls.as_ref().context("нет сертификата в состоянии сервера");
+        let tls = || st.protocols.tls.as_ref().context(tr!("нет сертификата в состоянии сервера", "no certificate in the server state"));
         Ok(if *p == Proto::Hysteria2 {
             Server { kind: Kind::Hysteria2, sni: tls()?.sni.clone(), pin: Some(tls()?.spki_sha256.clone()), ..base }
         } else if *p == Proto::Tuic {
             Server { kind: Kind::Tuic, uuid: u.uuid.clone(), sni: tls()?.sni.clone(), pin: Some(tls()?.spki_sha256.clone()), ..base }
         } else if *p == Proto::VlessWs {
-            let cdn = ps.cdn_host.clone().context("для VLESS-WS в состоянии сервера нет домена CDN")?;
+            let cdn = ps.cdn_host.clone().context(tr!("для VLESS-WS в состоянии сервера нет домена CDN", "no CDN domain for VLESS-WS in the server state"))?;
             Server {
                 name: format!("{cdn} vless-ws"),
                 host: cdn.clone(),
@@ -200,7 +201,7 @@ impl Server {
                 kind: Kind::VlessWs,
                 uuid: u.uuid.clone(),
                 sni: cdn,
-                ws_path: Some(ps.ws_path.clone().context("для VLESS-WS в состоянии сервера нет пути")?),
+                ws_path: Some(ps.ws_path.clone().context(tr!("для VLESS-WS в состоянии сервера нет пути", "no path for VLESS-WS in the server state"))?),
                 origin: Some(host.to_string()),
                 ..base
             }
@@ -238,13 +239,13 @@ impl Server {
     pub fn validate(&self) -> Result<()> {
         let charset = |s: &str, extra: &str| s.chars().all(|c| c.is_ascii_alphanumeric() || extra.contains(c));
         if self.name.is_empty() || self.name.chars().count() > 64 || self.name.chars().any(|c| c.is_control()) {
-            bail!("недопустимое имя сервера");
+            bail!(tr!("недопустимое имя сервера", "invalid server name"));
         }
         if self.host.is_empty() || self.host.len() > 253 || !charset(&self.host, ".:-") {
-            bail!("недопустимый хост `{}`", self.host);
+            bail!("{}", tr!(format!("недопустимый хост `{}`", self.host), format!("invalid host `{}`", self.host)));
         }
         if self.port == 0 {
-            bail!("порт 0");
+            bail!(tr!("порт 0", "port 0"));
         }
         let sni_ok = |s: &str| !s.is_empty() && s.len() <= 253 && charset(s, ".-");
         let uuid_ok = |u: &str| u.len() == 36 && charset(u, "-");
@@ -256,17 +257,17 @@ impl Server {
         match self.kind {
             Kind::Vless => {
                 if !uuid_ok(&self.uuid) {
-                    bail!("недопустимый uuid");
+                    bail!(tr!("недопустимый uuid", "invalid uuid"));
                 }
                 if !sni_ok(&self.sni) {
-                    bail!("недопустимый sni");
+                    bail!(tr!("недопустимый sni", "invalid sni"));
                 }
                 if !matches!(self.fingerprint.as_str(), "chrome" | "firefox" | "safari" | "ios" | "android" | "edge" | "360" | "qq" | "random" | "randomized") {
-                    bail!("недопустимый fingerprint `{}`", self.fingerprint);
+                    bail!("{}", tr!(format!("недопустимый fingerprint `{}`", self.fingerprint), format!("invalid fingerprint `{}`", self.fingerprint)));
                 }
                 if let Some(f) = &self.flow {
                     if f != "xtls-rprx-vision" {
-                        bail!("недопустимый flow");
+                        bail!(tr!("недопустимый flow", "invalid flow"));
                     }
                 }
                 match self.security.as_str() {
@@ -274,112 +275,112 @@ impl Server {
                         let pbk = self.public_key.as_deref().unwrap_or("");
                         let sid = self.short_id.as_deref().unwrap_or("");
                         if pbk.is_empty() || pbk.len() > 64 || !charset(pbk, "-_") {
-                            bail!("недопустимый public_key");
+                            bail!(tr!("недопустимый public_key", "invalid public_key"));
                         }
                         if sid.len() > 16 || sid.len() % 2 != 0 || !sid.chars().all(|c| c.is_ascii_hexdigit()) {
-                            bail!("недопустимый short_id");
+                            bail!(tr!("недопустимый short_id", "invalid short_id"));
                         }
                     }
                     "tls" => {}
-                    other => bail!("недопустимый security `{other}`"),
+                    other => bail!("{}", tr!(format!("недопустимый security `{other}`"), format!("invalid security `{other}`"))),
                 }
             }
             Kind::Hysteria2 | Kind::Tuic | Kind::Trojan | Kind::AnyTls => {
                 if self.kind == Kind::Tuic && !uuid_ok(&self.uuid) {
-                    bail!("недопустимый uuid");
+                    bail!(tr!("недопустимый uuid", "invalid uuid"));
                 }
                 if !password_ok(&self.password) {
-                    bail!("недопустимый пароль");
+                    bail!(tr!("недопустимый пароль", "invalid password"));
                 }
                 if !sni_ok(&self.sni) {
-                    bail!("недопустимый sni");
+                    bail!(tr!("недопустимый sni", "invalid sni"));
                 }
                 if !pin_ok(&self.pin) {
-                    bail!("недопустимый pin сертификата");
+                    bail!(tr!("недопустимый pin сертификата", "invalid certificate pin"));
                 }
             }
             Kind::VlessWs => {
                 if !uuid_ok(&self.uuid) {
-                    bail!("недопустимый uuid");
+                    bail!(tr!("недопустимый uuid", "invalid uuid"));
                 }
                 if !sni_ok(&self.sni) {
-                    bail!("недопустимый sni");
+                    bail!(tr!("недопустимый sni", "invalid sni"));
                 }
                 match &self.ws_path {
                     Some(p) if valid_ws_path(p) => {}
-                    _ => bail!("недопустимый путь WebSocket"),
+                    _ => bail!(tr!("недопустимый путь WebSocket", "invalid WebSocket path")),
                 }
                 if let Some(o) = &self.origin {
                     if o.is_empty() || o.len() > 253 || !charset(o, ".:-") {
-                        bail!("недопустимый адрес сервера-источника");
+                        bail!(tr!("недопустимый адрес сервера-источника", "invalid origin server address"));
                     }
                 }
             }
             Kind::Socks5 => {
                 // только IP-адрес: имя пришлось бы разрешать на клиенте (утечка DNS мимо цепочки)
                 if self.host.parse::<std::net::IpAddr>().is_err() {
-                    bail!("адрес внешнего exit должен быть IP-адресом, не именем");
+                    bail!(tr!("адрес внешнего exit должен быть IP-адресом, не именем", "external exit address must be an IP address, not a name"));
                 }
                 if !matches!(&self.via, Some(v) if !v.is_empty()) {
-                    bail!("внешний exit должен идти через свой сервер (via): напрямую с клиента его IP-адрес был бы виден прокси");
+                    bail!(tr!("внешний exit должен идти через свой сервер (via): напрямую с клиента его IP-адрес был бы виден прокси", "external exit must go through your own server (via): connecting directly from the client would expose its IP address to the proxy"));
                 }
                 let cred_ok = |c: &str| !c.is_empty() && c.len() <= 255 && c.bytes().all(|b| b.is_ascii_graphic() || b == b' ');
                 match (&self.username, &self.password) {
                     (None, None) => {}
                     (Some(u), Some(p)) if cred_ok(u) && cred_ok(p) => {}
-                    _ => bail!("логин и пароль внешнего exit задаются вместе (печатные ASCII-символы, до 255 байт)"),
+                    _ => bail!(tr!("логин и пароль внешнего exit задаются вместе (печатные ASCII-символы, до 255 байт)", "external exit username and password must be set together (printable ASCII, up to 255 bytes)")),
                 }
             }
             Kind::Custom => {
                 if !matches!(&self.profile, Some(p) if crate::profiles::valid_id(p)) {
-                    bail!("недопустимый идентификатор стороннего профиля");
+                    bail!(tr!("недопустимый идентификатор стороннего профиля", "invalid third-party profile identifier"));
                 }
                 if !uuid_ok(&self.uuid) {
-                    bail!("недопустимый uuid");
+                    bail!(tr!("недопустимый uuid", "invalid uuid"));
                 }
                 if !password_ok(&self.password) {
-                    bail!("недопустимый пароль");
+                    bail!(tr!("недопустимый пароль", "invalid password"));
                 }
                 if !sni_ok(&self.sni) {
-                    bail!("недопустимый sni");
+                    bail!(tr!("недопустимый sni", "invalid sni"));
                 }
                 if !pin_ok(&self.pin) {
-                    bail!("недопустимый pin сертификата");
+                    bail!(tr!("недопустимый pin сертификата", "invalid certificate pin"));
                 }
                 if !matches!(self.security.as_str(), "tls" | "none") {
-                    bail!("недопустимый security `{}`", self.security);
+                    bail!("{}", tr!(format!("недопустимый security `{}`", self.security), format!("invalid security `{}`", self.security)));
                 }
                 if let Some(m) = &self.method {
                     if m.is_empty() || m.len() > 64 || !charset(m, "-_.") {
-                        bail!("недопустимый method");
+                        bail!(tr!("недопустимый method", "invalid method"));
                     }
                 }
                 if self.ws_path.is_some() || self.origin.is_some() || self.via.is_some() || self.username.is_some() {
-                    bail!("у стороннего профиля нет ws_path, origin, via и username");
+                    bail!(tr!("у стороннего профиля нет ws_path, origin, via и username", "a third-party profile must not have ws_path, origin, via or username"));
                 }
             }
             Kind::ShadowTls => {
                 if !matches!(&self.method, Some(m) if SS_METHODS.contains(&m.as_str())) {
-                    bail!("недопустимый шифр ShadowTLS (внутренний Shadowsocks 2022)");
+                    bail!(tr!("недопустимый шифр ShadowTLS (внутренний Shadowsocks 2022)", "invalid ShadowTLS cipher (inner Shadowsocks 2022)"));
                 }
                 match &self.password {
                     Some(p) if !p.is_empty() && p.len() <= 256 && charset(p, "+/=:") => {}
-                    _ => bail!("недопустимый пароль ShadowTLS"),
+                    _ => bail!(tr!("недопустимый пароль ShadowTLS", "invalid ShadowTLS password")),
                 }
                 if !sni_ok(&self.sni) {
-                    bail!("недопустимый сайт для рукопожатия ShadowTLS");
+                    bail!(tr!("недопустимый сайт для рукопожатия ShadowTLS", "invalid ShadowTLS handshake site"));
                 }
                 if self.pin.is_some() {
-                    bail!("у ShadowTLS нет закрепления сертификата");
+                    bail!(tr!("у ShadowTLS нет закрепления сертификата", "ShadowTLS has no certificate pinning"));
                 }
             }
             Kind::Ss2022 => {
                 if !matches!(&self.method, Some(m) if SS_METHODS.contains(&m.as_str())) {
-                    bail!("недопустимый шифр SS-2022");
+                    bail!(tr!("недопустимый шифр SS-2022", "invalid SS-2022 cipher"));
                 }
                 match &self.password {
                     Some(p) if !p.is_empty() && p.len() <= 256 && charset(p, "+/=:") => {}
-                    _ => bail!("недопустимый пароль SS-2022"),
+                    _ => bail!(tr!("недопустимый пароль SS-2022", "invalid SS-2022 password")),
                 }
             }
         }
@@ -396,13 +397,13 @@ pub fn check_chains(servers: &[Server]) -> Result<()> {
     for s in servers.iter().filter(|s| s.is_external_exit()) {
         let v = s.via.as_deref().unwrap_or("");
         match servers.iter().find(|x| x.name == v) {
-            None => bail!("у внешнего exit `{}` нет сервера-входа `{v}` в списке", s.name),
-            Some(e) if e.is_external_exit() => bail!("внешний exit `{}` идёт через другой внешний exit `{v}`: цепочки из нескольких прокси не поддерживаются", s.name),
+            None => bail!("{}", tr!(format!("у внешнего exit `{}` нет сервера-входа `{v}` в списке", s.name), format!("external exit `{}` has no entry server `{v}` in the list", s.name))),
+            Some(e) if e.is_external_exit() => bail!("{}", tr!(format!("внешний exit `{}` идёт через другой внешний exit `{v}`: цепочки из нескольких прокси не поддерживаются", s.name), format!("external exit `{}` goes through another external exit `{v}`: chains of multiple proxies are not supported", s.name))),
             Some(_) => {}
         }
     }
     if servers.iter().all(|s| s.is_external_exit()) && !servers.is_empty() {
-        bail!("в списке только внешние exit: нужен хотя бы один свой сервер");
+        bail!(tr!("в списке только внешние exit: нужен хотя бы один свой сервер", "the list contains only external exits: at least one of your own servers is required"));
     }
     Ok(())
 }
@@ -423,29 +424,29 @@ pub fn servers_from_state(host: &str, st: &State, u: &User) -> Result<Vec<Server
 
 fn split_host_port(s: &str) -> Result<(String, u16)> {
     let (host, port) = if let Some(rest) = s.strip_prefix('[') {
-        let (h, tail) = rest.split_once(']').context("в IPv6-адресе нет закрывающей ]")?;
-        (h.to_string(), tail.strip_prefix(':').context("нет порта после IPv6-адреса")?)
+        let (h, tail) = rest.split_once(']').context(tr!("в IPv6-адресе нет закрывающей ]", "missing closing ] in IPv6 address"))?;
+        (h.to_string(), tail.strip_prefix(':').context(tr!("нет порта после IPv6-адреса", "no port after the IPv6 address"))?)
     } else {
-        let (h, p) = s.rsplit_once(':').context("нет порта в host:port")?;
+        let (h, p) = s.rsplit_once(':').context(tr!("нет порта в host:port", "no port in host:port"))?;
         (h.to_string(), p)
     };
-    let port: u16 = port.parse().context("порт не число")?;
+    let port: u16 = port.parse().context(tr!("порт не число", "port is not a number"))?;
     if host.is_empty() || port == 0 {
-        bail!("пустой хост или порт 0");
+        bail!(tr!("пустой хост или порт 0", "empty host or port 0"));
     }
     Ok((host, port))
 }
 
 pub fn parse_vless(link: &str) -> Result<Server> {
-    let rest = link.trim().strip_prefix("vless://").context("это не vless:// ссылка")?;
+    let rest = link.trim().strip_prefix("vless://").context(tr!("это не vless:// ссылка", "not a vless:// link"))?;
     let (main, label) = match rest.split_once('#') {
         Some((m, l)) => (m, Some(urlencoding::decode(l)?.into_owned())),
         None => (rest, None),
     };
     let (auth_host, query) = main.split_once('?').unwrap_or((main, ""));
-    let (uuid, hostport) = auth_host.split_once('@').context("нет uuid@host в ссылке")?;
+    let (uuid, hostport) = auth_host.split_once('@').context(tr!("нет uuid@host в ссылке", "no uuid@host in the link"))?;
     if uuid.len() != 36 {
-        bail!("uuid выглядит неверно: `{uuid}`");
+        bail!("{}", tr!(format!("uuid выглядит неверно: `{uuid}`"), format!("uuid looks invalid: `{uuid}`")));
     }
     let (host, port) = split_host_port(hostport)?;
 
@@ -458,41 +459,41 @@ pub fn parse_vless(link: &str) -> Result<Server> {
 
     if let Some(e) = get("encryption") {
         if e != "none" {
-            bail!("encryption=`{e}` не поддерживается");
+            bail!("{}", tr!(format!("encryption=`{e}` не поддерживается"), format!("encryption=`{e}` is not supported")));
         }
     }
     let ws = match get("type") {
         None | Some("tcp") => false,
         Some("ws") => true,
-        Some(t) => bail!("транспорт `{t}` пока не поддерживается (tcp и ws)"),
+        Some(t) => bail!("{}", tr!(format!("транспорт `{t}` пока не поддерживается (tcp и ws)"), format!("transport `{t}` is not supported yet (tcp and ws)"))),
     };
     let flow = match get("flow") {
         None => None,
         Some("xtls-rprx-vision") => Some("xtls-rprx-vision".to_string()),
-        Some(f) => bail!("flow `{f}` не поддерживается"),
+        Some(f) => bail!("{}", tr!(format!("flow `{f}` не поддерживается"), format!("flow `{f}` is not supported"))),
     };
     let security = get("security").unwrap_or("none");
     let (security, public_key, short_id) = match security {
         "reality" => {
-            let pbk = get("pbk").context("для reality нужен pbk")?.to_string();
+            let pbk = get("pbk").context(tr!("для reality нужен pbk", "reality requires pbk"))?.to_string();
             ("reality".to_string(), Some(pbk), Some(get("sid").unwrap_or("").to_string()))
         }
         "tls" => ("tls".to_string(), None, None),
-        other => bail!("security=`{other}` не поддерживается (нужны reality или tls)"),
+        other => bail!("{}", tr!(format!("security=`{other}` не поддерживается (нужны reality или tls)"), format!("security=`{other}` is not supported (reality or tls required)"))),
     };
 
     let ws_path = if ws {
         if security != "tls" {
-            bail!("транспорт ws поддерживается только с security=tls");
+            bail!(tr!("транспорт ws поддерживается только с security=tls", "ws transport is supported only with security=tls"));
         }
         if let Some(h) = get("host") {
             if h != get("sni").unwrap_or(&host) {
-                bail!("заголовок Host (`{h}`) отличается от sni: такое не поддерживается");
+                bail!("{}", tr!(format!("заголовок Host (`{h}`) отличается от sni: такое не поддерживается"), format!("Host header (`{h}`) differs from sni: this is not supported")));
             }
         }
         let p = get("path").unwrap_or("/");
         if !valid_ws_path(p) && p != "/" {
-            bail!("путь WebSocket `{p}` содержит недопустимые символы");
+            bail!("{}", tr!(format!("путь WebSocket `{p}` содержит недопустимые символы"), format!("WebSocket path `{p}` contains invalid characters")));
         }
         Some(p.to_string())
     } else {
@@ -539,7 +540,7 @@ fn split_url(rest: &str) -> Result<Parts> {
         None => (rest, None),
     };
     let (auth_host, query) = main.split_once('?').unwrap_or((main, ""));
-    let (userinfo, hostpath) = auth_host.rsplit_once('@').context("в ссылке нет данных входа перед @")?;
+    let (userinfo, hostpath) = auth_host.rsplit_once('@').context(tr!("в ссылке нет данных входа перед @", "no login data before @ in the link"))?;
     let hostport = hostpath.split('/').next().unwrap_or("");
     let (host, port) = split_host_port(hostport)?;
     Ok((userinfo.to_string(), host, port, parse_query(query)?, label))
@@ -549,19 +550,23 @@ fn pin_from_query(q: &HashMap<String, String>, insecure_keys: &[&str]) -> Result
     let pin = q.get("pinSPKI").filter(|v| !v.is_empty()).cloned();
     let insecure = insecure_keys.iter().any(|k| q.get(*k).map(String::as_str) == Some("1"));
     if insecure && pin.is_none() {
-        bail!("ссылка требует отключить проверку сертификата (insecure=1) без закрепления ключа; такое не поддерживается. \
-               Закрепление по pinSHA256 тоже не поддерживается: нужен pinSPKI из ссылки, которую выдаёт Eleutheria");
+        bail!(tr!(
+            "ссылка требует отключить проверку сертификата (insecure=1) без закрепления ключа; такое не поддерживается. \
+               Закрепление по pinSHA256 тоже не поддерживается: нужен pinSPKI из ссылки, которую выдаёт Eleutheria",
+            "the link requires disabling certificate verification (insecure=1) without key pinning; this is not supported. \
+               Pinning by pinSHA256 is not supported either: a pinSPKI from a link issued by Eleutheria is required"
+        ));
     }
     Ok(pin)
 }
 
 pub fn parse_hysteria2(link: &str) -> Result<Server> {
     let t = link.trim();
-    let rest = t.strip_prefix("hysteria2://").or_else(|| t.strip_prefix("hy2://")).context("это не hysteria2:// ссылка")?;
+    let rest = t.strip_prefix("hysteria2://").or_else(|| t.strip_prefix("hy2://")).context(tr!("это не hysteria2:// ссылка", "not a hysteria2:// link"))?;
     let (auth, host, port, q, label) = split_url(rest)?;
     for k in ["obfs", "mport"] {
         if q.get(k).is_some_and(|v| !v.is_empty()) {
-            bail!("параметр `{k}` пока не поддерживается");
+            bail!("{}", tr!(format!("параметр `{k}` пока не поддерживается"), format!("parameter `{k}` is not supported yet")));
         }
     }
     let pin = pin_from_query(&q, &["insecure"])?;
@@ -586,11 +591,11 @@ pub fn parse_hysteria2(link: &str) -> Result<Server> {
 }
 
 pub fn parse_tuic(link: &str) -> Result<Server> {
-    let rest = link.trim().strip_prefix("tuic://").context("это не tuic:// ссылка")?;
+    let rest = link.trim().strip_prefix("tuic://").context(tr!("это не tuic:// ссылка", "not a tuic:// link"))?;
     let (auth, host, port, q, label) = split_url(rest)?;
-    let (uuid, pw) = auth.split_once(':').context("в tuic:// нужны uuid:пароль")?;
+    let (uuid, pw) = auth.split_once(':').context(tr!("в tuic:// нужны uuid:пароль", "tuic:// requires uuid:password"))?;
     if uuid.len() != 36 {
-        bail!("uuid выглядит неверно: `{uuid}`");
+        bail!("{}", tr!(format!("uuid выглядит неверно: `{uuid}`"), format!("uuid looks invalid: `{uuid}`")));
     }
     let pin = pin_from_query(&q, &["allow_insecure", "insecure"])?;
     Ok(Server {
@@ -615,17 +620,17 @@ pub fn parse_tuic(link: &str) -> Result<Server> {
 /// `trojan://пароль@host:port?security=tls&sni=..&pinSPKI=..#имя`. Только TCP+TLS: ws, grpc и прочие транспорты
 /// не поддерживаются.
 pub fn parse_trojan(link: &str) -> Result<Server> {
-    let rest = link.trim().strip_prefix("trojan://").context("это не trojan:// ссылка")?;
+    let rest = link.trim().strip_prefix("trojan://").context(tr!("это не trojan:// ссылка", "not a trojan:// link"))?;
     let (auth, host, port, q, label) = split_url(rest)?;
     let get = |k: &str| q.get(k).map(String::as_str).filter(|v| !v.is_empty());
     if let Some(t) = get("type").filter(|t| *t != "tcp") {
-        bail!("транспорт `{t}` не поддерживается (только tcp)");
+        bail!("{}", tr!(format!("транспорт `{t}` не поддерживается (только tcp)"), format!("transport `{t}` is not supported (tcp only)")));
     }
     if let Some(sec) = get("security").filter(|s| *s != "tls") {
-        bail!("security=`{sec}` не поддерживается (нужен tls)");
+        bail!("{}", tr!(format!("security=`{sec}` не поддерживается (нужен tls)"), format!("security=`{sec}` is not supported (tls required)")));
     }
     if get("plugin").is_some() {
-        bail!("плагины Trojan не поддерживаются");
+        bail!(tr!("плагины Trojan не поддерживаются", "Trojan plugins are not supported"));
     }
     let pin = pin_from_query(&q, &["allowInsecure", "allow_insecure", "insecure"])?;
     Ok(Server {
@@ -649,7 +654,7 @@ pub fn parse_trojan(link: &str) -> Result<Server> {
 
 /// `anytls://пароль@host:port?sni=..&insecure=1&pinSPKI=..#имя`.
 pub fn parse_anytls(link: &str) -> Result<Server> {
-    let rest = link.trim().strip_prefix("anytls://").context("это не anytls:// ссылка")?;
+    let rest = link.trim().strip_prefix("anytls://").context(tr!("это не anytls:// ссылка", "not an anytls:// link"))?;
     let (auth, host, port, q, label) = split_url(rest)?;
     let pin = pin_from_query(&q, &["insecure", "allowInsecure", "allow_insecure"])?;
     Ok(Server {
@@ -674,10 +679,10 @@ pub fn parse_anytls(link: &str) -> Result<Server> {
 /// `ss://method:password@host:port` (SIP002; userinfo либо в процентном кодировании, либо base64url).
 /// Поддерживаются только шифры SS-2022.
 pub fn parse_ss(link: &str) -> Result<Server> {
-    let rest = link.trim().strip_prefix("ss://").context("это не ss:// ссылка")?;
+    let rest = link.trim().strip_prefix("ss://").context(tr!("это не ss:// ссылка", "not an ss:// link"))?;
     let (userinfo, host, port, q, label) = split_url(rest)?;
     if q.contains_key("plugin") {
-        bail!("плагины Shadowsocks не поддерживаются");
+        bail!(tr!("плагины Shadowsocks не поддерживаются", "Shadowsocks plugins are not supported"));
     }
     let plain = urlencoding::decode(&userinfo)?.into_owned();
     let pair = if SS_METHODS.iter().any(|m| plain.starts_with(&format!("{m}:"))) {
@@ -686,9 +691,9 @@ pub fn parse_ss(link: &str) -> Result<Server> {
         let raw = b64_decode(&userinfo).and_then(|b| String::from_utf8(b).ok()).unwrap_or_default();
         if raw.is_empty() { plain } else { raw }
     };
-    let (method, password) = pair.split_once(':').context("в ss:// нужны шифр:пароль")?;
+    let (method, password) = pair.split_once(':').context(tr!("в ss:// нужны шифр:пароль", "ss:// requires cipher:password"))?;
     if !SS_METHODS.contains(&method) {
-        bail!("шифр `{method}` не поддерживается (нужен один из SS-2022: {})", SS_METHODS.join(", "));
+        bail!("{}", tr!(format!("шифр `{method}` не поддерживается (нужен один из SS-2022: {})", SS_METHODS.join(", ")), format!("cipher `{method}` is not supported (one of SS-2022 required: {})", SS_METHODS.join(", "))));
     }
     Ok(Server {
         ws_path: None, origin: None, via: None, username: None, profile: None,
@@ -725,7 +730,7 @@ pub fn parse_link(link: &str) -> Result<Server> {
     } else if t.starts_with("anytls://") {
         parse_anytls(t)?
     } else {
-        bail!("схема `{}` не поддерживается (vless, hysteria2, tuic, ss, trojan, anytls)", t.split("://").next().unwrap_or("?"));
+        bail!("{}", tr!(format!("схема `{}` не поддерживается (vless, hysteria2, tuic, ss, trojan, anytls)", t.split("://").next().unwrap_or("?")), format!("scheme `{}` is not supported (vless, hysteria2, tuic, ss, trojan, anytls)", t.split("://").next().unwrap_or("?"))));
     };
     s.validate()?;
     Ok(s)
@@ -770,7 +775,7 @@ pub fn parse_subscription(body: &str) -> (Vec<Server>, Vec<String>) {
                 Err(e) => skipped.push(format!("{}: {e:#}", line.chars().take(40).collect::<String>())),
             }
         } else {
-            skipped.push(format!("схема `{scheme}` пока не поддерживается"));
+            skipped.push(tr!(format!("схема `{scheme}` пока не поддерживается"), format!("scheme `{scheme}` is not supported yet")));
         }
     }
     (servers, skipped)
@@ -784,7 +789,7 @@ pub async fn fetch_subscription(url: &str) -> Result<String> {
     Ok(c.get(url)
         .send()
         .await
-        .with_context(|| format!("не удалось скачать подписку {url}"))?
+        .with_context(|| tr!(format!("не удалось скачать подписку {url}"), format!("failed to download subscription {url}")))?
         .error_for_status()?
         .text()
         .await?)
@@ -816,7 +821,7 @@ fn legacy_path_in(dir: &Path) -> PathBuf {
 fn read_index(store: &dyn SecretStore) -> Result<Option<Vec<String>>> {
     match store.get(INDEX)? {
         None => Ok(None),
-        Some(raw) => Ok(Some(serde_json::from_slice(&raw).context("повреждён индекс серверов в хранилище секретов")?)),
+        Some(raw) => Ok(Some(serde_json::from_slice(&raw).context(tr!("повреждён индекс серверов в хранилище секретов", "server index in the secret store is corrupted"))?)),
     }
 }
 
@@ -844,14 +849,14 @@ fn migrate_legacy(dir: &Path, store: &dyn SecretStore) -> Result<()> {
     if !path.exists() || read_index(store)?.is_some() {
         return Ok(());
     }
-    let raw = fs::read_to_string(&path).with_context(|| format!("не удалось прочитать {}", path.display()))?;
-    let legacy: LegacyFile = serde_json::from_str(&raw).with_context(|| format!("{} повреждён, перенос отменён", path.display()))?;
+    let raw = fs::read_to_string(&path).with_context(|| tr!(format!("не удалось прочитать {}", path.display()), format!("failed to read {}", path.display())))?;
+    let legacy: LegacyFile = serde_json::from_str(&raw).with_context(|| tr!(format!("{} повреждён, перенос отменён", path.display()), format!("{} is corrupted, migration cancelled", path.display())))?;
     save_all(store, &legacy.servers)?;
     if load_from(store)? != legacy.servers {
-        bail!("перенос серверов в {}: проверка записи не прошла, {} не тронут", store.kind(), path.display());
+        bail!("{}", tr!(format!("перенос серверов в {}: проверка записи не прошла, {} не тронут", store.kind(), path.display()), format!("migrating servers to {}: write verification failed, {} left untouched", store.kind(), path.display())));
     }
     if let Err(e) = fs::remove_file(&path) {
-        eprintln!("Предупреждение: серверы перенесены, но удалить {} не удалось: {e}. Удали файл вручную.", path.display());
+        eprintln!("{}", tr!(format!("Предупреждение: серверы перенесены, но удалить {} не удалось: {e}. Удали файл вручную.", path.display()), format!("Warning: servers were migrated, but {} could not be deleted: {e}. Delete the file manually.", path.display())));
     }
     Ok(())
 }
@@ -860,8 +865,8 @@ fn load_from(store: &dyn SecretStore) -> Result<Vec<Server>> {
     let mut out = Vec::new();
     for n in read_index(store)?.unwrap_or_default() {
         match store.get(&entry_name(&n))? {
-            Some(raw) => out.push(serde_json::from_slice(&raw).with_context(|| format!("повреждена запись сервера `{n}`"))?),
-            None => eprintln!("Предупреждение: сервер `{n}` есть в индексе, но его записи нет в хранилище; пропускаю."),
+            Some(raw) => out.push(serde_json::from_slice(&raw).with_context(|| tr!(format!("повреждена запись сервера `{n}`"), format!("server record `{n}` is corrupted")))?),
+            None => eprintln!("{}", tr!(format!("Предупреждение: сервер `{n}` есть в индексе, но его записи нет в хранилище; пропускаю."), format!("Warning: server `{n}` is in the index but its record is missing from the store; skipping."))),
         }
     }
     Ok(out)
@@ -894,14 +899,14 @@ fn upsert_in(dir: &Path, store: &dyn SecretStore, mut s: Server) -> Result<Strin
 /// Добавить внешний exit. Имя занято или такой прокси уже есть: ошибка (суффикс, как у импорта, тут вреден:
 /// имя входит в команды и правила). Цепочка проверяется вместе со всем списком.
 fn add_exit_in(dir: &Path, store: &dyn SecretStore, s: Server) -> Result<String> {
-    anyhow::ensure!(s.is_external_exit(), "это не внешний exit");
+    anyhow::ensure!(s.is_external_exit(), tr!("это не внешний exit", "not an external exit"));
     s.validate()?;
     let mut all = try_load_in(dir, store)?;
     if all.iter().any(|x| x.name == s.name) {
-        bail!("имя `{}` уже занято", s.name);
+        bail!("{}", tr!(format!("имя `{}` уже занято", s.name), format!("name `{}` is already taken", s.name)));
     }
     if all.iter().any(|x| x.is_external_exit() && x.host == s.host && x.port == s.port && x.via == s.via) {
-        bail!("такой внешний exit через `{}` уже добавлен", s.via.as_deref().unwrap_or(""));
+        bail!("{}", tr!(format!("такой внешний exit через `{}` уже добавлен", s.via.as_deref().unwrap_or("")), format!("this external exit via `{}` has already been added", s.via.as_deref().unwrap_or(""))));
     }
     all.push(s.clone());
     check_chains(&all)?;
@@ -911,24 +916,24 @@ fn add_exit_in(dir: &Path, store: &dyn SecretStore, s: Server) -> Result<String>
 
 /// Разобрать `socks5://[логин:пароль@]IP:порт` в запись внешнего exit. Имена вместо IP не принимаются.
 pub fn parse_socks_exit(url: &str, name: &str, via: &str) -> Result<Server> {
-    let rest = url.strip_prefix("socks5://").context("нужна ссылка вида socks5://[логин:пароль@]IP:порт")?;
+    let rest = url.strip_prefix("socks5://").context(tr!("нужна ссылка вида socks5://[логин:пароль@]IP:порт", "a link like socks5://[user:password@]IP:port is required"))?;
     let (cred, addr) = match rest.rsplit_once('@') {
         Some((c, a)) => (Some(c), a),
         None => (None, rest),
     };
     let (host, port) = match addr.strip_prefix('[') {
         Some(r) => {
-            let (h, p) = r.split_once("]:").context("после IPv6-адреса в скобках нужен :порт")?;
+            let (h, p) = r.split_once("]:").context(tr!("после IPv6-адреса в скобках нужен :порт", "a :port is required after the bracketed IPv6 address"))?;
             (h, p)
         }
-        None => addr.rsplit_once(':').context("нужен порт: socks5://IP:порт")?,
+        None => addr.rsplit_once(':').context(tr!("нужен порт: socks5://IP:порт", "port required: socks5://IP:port"))?,
     };
-    let port: u16 = port.parse().context("порт не число")?;
+    let port: u16 = port.parse().context(tr!("порт не число", "port is not a number"))?;
     let (username, password) = match cred {
         None => (None, None),
         Some(c) => {
-            let (u, p) = c.split_once(':').context("логин и пароль задаются как логин:пароль")?;
-            let dec = |x: &str| urlencoding::decode(x).map(|c| c.into_owned()).context("логин или пароль не раскодировались");
+            let (u, p) = c.split_once(':').context(tr!("логин и пароль задаются как логин:пароль", "username and password must be given as user:password"))?;
+            let dec = |x: &str| urlencoding::decode(x).map(|c| c.into_owned()).context(tr!("логин или пароль не раскодировались", "failed to decode username or password"));
             (Some(dec(u)?), Some(dec(p)?))
         }
     };
@@ -946,7 +951,7 @@ fn remove_in(dir: &Path, store: &dyn SecretStore, name: &str) -> Result<bool> {
     let mut all = try_load_in(dir, store)?;
     let dependents: Vec<&str> = all.iter().filter(|x| x.is_external_exit() && x.via.as_deref() == Some(name)).map(|x| x.name.as_str()).collect();
     if !dependents.is_empty() {
-        bail!("`{name}` служит входом для внешнего exit ({}): сначала удали его", dependents.join(", "));
+        bail!("{}", tr!(format!("`{name}` служит входом для внешнего exit ({}): сначала удали его", dependents.join(", ")), format!("`{name}` is the entry for an external exit ({}): remove that first", dependents.join(", "))));
     }
     let before = all.len();
     all.retain(|s| s.name != name);
@@ -965,7 +970,7 @@ pub fn try_load() -> Result<Vec<Server>> {
 /// Список серверов. При ошибке хранилища печатает её в stderr и возвращает пустой список.
 pub fn load() -> Vec<Server> {
     try_load().unwrap_or_else(|e| {
-        eprintln!("Не удалось прочитать список серверов: {e:#}");
+        eprintln!("{}", tr!(format!("Не удалось прочитать список серверов: {e:#}"), format!("Failed to read the server list: {e:#}")));
         Vec::new()
     })
 }

@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Обновление приложения и helper на главной вкладке. Логика решений живёт в updatemodel.js.
 import * as um from './updatemodel.js';
 
@@ -16,7 +17,7 @@ export function initUpdates(ctx) {
   function render() {
     const ov = ctx.overview();
     const v = um.updateView(outcome);
-    $('upd-version').textContent = ov && ov.appVersion ? `Версия приложения: ${ov.appVersion}` : '';
+    $('upd-version').textContent = ov && ov.appVersion ? t('upd.version', { v: ov.appVersion }) : '';
     $('upd-status').textContent = note || v.text;
     const notes = outcome && outcome.kind === 'available' ? outcome.info.notes : null;
     $('upd-notes').textContent = notes || '';
@@ -37,7 +38,7 @@ export function initUpdates(ctx) {
       outcome = await invoke('check_update');
     } catch (e) {
       outcome = null;
-      note = `Не удалось проверить обновления: ${e}`;
+      note = t('upd.checkFail', { e });
       if (manual) ctx.say(note, true);
     } finally {
       working = false;
@@ -52,12 +53,12 @@ export function initUpdates(ctx) {
     bar.classList.remove('hidden');
     render();
     try {
-      ctx.say('Скачиваю обновление…');
+      ctx.say(t('upd.downloading'));
       await invoke('download_update'); // подпись проверяется здесь, до любых изменений в системе
-      ctx.say('Пакет скачан и проверен. Устанавливаю, приложение перезапустится…');
+      ctx.say(t('upd.downloaded'));
       await invoke('install_update');
     } catch (e) {
-      ctx.say(`Обновить не удалось: ${e}`, true);
+      ctx.say(t('upd.installFail', { e }), true);
     } finally {
       working = false;
       bar.classList.add('hidden');
@@ -68,17 +69,17 @@ export function initUpdates(ctx) {
   async function installFromFile() {
     const [file, sig] = [$('upd-file').value.trim(), $('upd-sig').value.trim()];
     if (!um.manualImportReady(file, sig)) {
-      ctx.say('Укажи путь к файлу обновления и к файлу подписи .sig.', true);
+      ctx.say(t('upd.needPaths'), true);
       return;
     }
     working = true;
     render();
     try {
-      ctx.say('Проверяю подпись и версию…');
+      ctx.say(t('upd.verifying'));
       const r = await invoke('import_update', { file, sig });
-      ctx.say(`Пакет ${r.version} проверен и установлен. ${r.restarting ? 'Приложение перезапустится…' : ''}`);
+      ctx.say(t('upd.imported', { v: r.version, restart: r.restarting ? t('upd.restarting') : '' }));
     } catch (e) {
-      ctx.say(`Обновить из файла не удалось: ${e}`, true);
+      ctx.say(t('upd.importFail', { e }), true);
     } finally {
       working = false;
       render();
@@ -87,11 +88,11 @@ export function initUpdates(ctx) {
 
   async function updateHelper() {
     const ov = ctx.overview();
-    if (ov && ov.connection && ov.connection.mode === 'tun' && !window.confirm('Туннель будет прерван на время обновления helper. Продолжить?')) return;
+    if (ov && ov.connection && ov.connection.mode === 'tun' && !window.confirm(t('upd.confirmHelper'))) return;
     await ctx.guarded(async () => {
-      ctx.say('Обновляю helper: подтверди запрос прав администратора…');
+      ctx.say(t('upd.helperUpdating'));
       await invoke('install_helper');
-      ctx.say('Helper обновлён.');
+      ctx.say(t('upd.helperUpdated'));
     });
   }
 

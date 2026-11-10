@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use eleutheria_core::store;
+use eleutheria_core::tr;
 use eleutheria_core::version;
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +40,7 @@ pub fn load_prefs_from(path: &Path) -> UpdatePrefs {
 
 pub fn save_prefs_to(path: &Path, p: &UpdatePrefs) -> Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("не удалось создать {}", dir.display()))?;
+        std::fs::create_dir_all(dir).with_context(|| tr!(format!("не удалось создать {}", dir.display()), format!("failed to create {}", dir.display())))?;
     }
     let tmp = path.with_extension("json.part");
     std::fs::write(&tmp, serde_json::to_vec_pretty(p)?)?;
@@ -111,16 +112,16 @@ pub enum CheckOutcome {
 /// (его выдаёт переменная окружения `APPIMAGE`), на Windows и macOS с любой обычной установкой.
 pub fn install_supported(os: &str, appimage: bool) -> Result<(), String> {
     match os {
-        "linux" if !appimage => Err("Обновление изнутри приложения работает только в сборке AppImage. Для пакета .deb скачай новую версию и установи её поверх.".into()),
+        "linux" if !appimage => Err(tr!("Обновление изнутри приложения работает только в сборке AppImage. Для пакета .deb скачай новую версию и установи её поверх.", "In-app updates only work with the AppImage build. For the .deb package, download the new version and install it over the old one.").into()),
         "linux" | "windows" | "macos" => Ok(()),
-        other => Err(format!("Обновление изнутри приложения не поддерживается на этой ОС ({other}).")),
+        other => Err(tr!(format!("Обновление изнутри приложения не поддерживается на этой ОС ({other})."), format!("In-app updates are not supported on this OS ({other})."))),
     }
 }
 
 /// Подготовить откат перед установкой обновления: копия текущей установки, маркер и сторож.
 /// Ошибка не фатальна для обновления: вызывающий показывает предупреждение и продолжает.
 pub fn arm_rollback(from: &str, to: &str) -> Result<()> {
-    let exe = std::env::current_exe().context("не удалось определить путь приложения")?;
+    let exe = std::env::current_exe().context(tr!("не удалось определить путь приложения", "failed to determine the application path"))?;
     let appimage = std::env::var_os("APPIMAGE").map(PathBuf::from);
     let cli = exe.with_file_name(format!("eleutheria{}", std::env::consts::EXE_SUFFIX));
     arm_rollback_in(&store::config_dir(), std::env::consts::OS, appimage.as_deref(), &exe, &cli, from, to, eleutheria_core::rollback::START_TIMEOUT_SECS)
@@ -130,7 +131,7 @@ pub fn arm_rollback_in(dir: &Path, os: &str, appimage: Option<&Path>, exe: &Path
     use eleutheria_core::rollback;
     let (target, kind, relaunch) = rollback::target_for(os, appimage, exe).map_err(anyhow::Error::msg)?;
     if !cli.exists() {
-        anyhow::bail!("рядом с приложением нет eleutheria (сторожу отката нечем запускаться)");
+        anyhow::bail!("{}", tr!("рядом с приложением нет eleutheria (сторожу отката нечем запускаться)", "eleutheria is missing next to the application (the rollback watchdog has nothing to run)"));
     }
     rollback::prepare(dir, from, to, &target, kind, &relaunch, rollback::now_unix(), timeout)?;
     if let Err(e) = rollback::spawn_watchdog(dir, cli) {
@@ -180,31 +181,31 @@ pub fn verify_package(pubkey_b64: &str, data: &[u8], sig: &str, current: &str) -
     use base64::Engine;
     use minisign_verify::{PublicKey, Signature};
     if !pubkey_configured(pubkey_b64) {
-        anyhow::bail!("публичный ключ обновлений не настроен: проверять подпись нечем");
+        anyhow::bail!("{}", tr!("публичный ключ обновлений не настроен: проверять подпись нечем", "the update public key is not configured: nothing to verify the signature with"));
     }
     let b64 = base64::engine::general_purpose::STANDARD;
     let decode = |s: &str| -> Result<String> {
-        let raw = b64.decode(s.trim()).context("не base64")?;
-        Ok(String::from_utf8(raw).context("не текст")?)
+        let raw = b64.decode(s.trim()).context(tr!("не base64", "not base64"))?;
+        Ok(String::from_utf8(raw).context(tr!("не текст", "not text"))?)
     };
-    let pk = PublicKey::decode(&decode(pubkey_b64).context("публичный ключ в конфигурации повреждён")?)
-        .map_err(|e| anyhow::anyhow!("публичный ключ в конфигурации повреждён: {e}"))?;
+    let pk = PublicKey::decode(&decode(pubkey_b64).context(tr!("публичный ключ в конфигурации повреждён", "the public key in the configuration is corrupted"))?)
+        .map_err(|e| anyhow::anyhow!("{}", tr!(format!("публичный ключ в конфигурации повреждён: {e}"), format!("the public key in the configuration is corrupted: {e}"))))?;
     // файл .sig, созданный Tauri, это base64 от minisign-подписи; обычная minisign-подпись тоже принимается
-    let sig_text = if sig.trim_start().starts_with("untrusted comment:") { sig.to_string() } else { decode(sig).context("файл подписи не похож на .sig")? };
-    let signature = Signature::decode(&sig_text).map_err(|e| anyhow::anyhow!("файл подписи повреждён: {e}"))?;
-    pk.verify(data, &signature, true).map_err(|_| anyhow::anyhow!("подпись не совпадает: файл изменён или подписан не нашим ключом"))?;
+    let sig_text = if sig.trim_start().starts_with("untrusted comment:") { sig.to_string() } else { decode(sig).context(tr!("файл подписи не похож на .sig", "the signature file does not look like a .sig"))? };
+    let signature = Signature::decode(&sig_text).map_err(|e| anyhow::anyhow!("{}", tr!(format!("файл подписи повреждён: {e}"), format!("the signature file is corrupted: {e}"))))?;
+    pk.verify(data, &signature, true).map_err(|_| anyhow::anyhow!("{}", tr!("подпись не совпадает: файл изменён или подписан не нашим ключом", "signature mismatch: the file was modified or signed with a different key")))?;
     // trusted comment защищён подписью, поэтому версию берём только отсюда и только после проверки
     let version = signature
         .trusted_comment()
         .split('\t')
         .find_map(|f| f.strip_prefix("version:"))
-        .ok_or_else(|| anyhow::anyhow!("в подписи нет версии пакета (такие релизы без защиты от подмены версии не принимаем)"))?
+        .ok_or_else(|| anyhow::anyhow!("{}", tr!("в подписи нет версии пакета (такие релизы без защиты от подмены версии не принимаем)", "the signature has no package version (releases without protection against version spoofing are not accepted)")))?
         .trim_start_matches('v')
         .to_string();
     match version::compare(&version, current) {
         Some(std::cmp::Ordering::Greater) => Ok(version),
-        Some(_) => anyhow::bail!("версия пакета ({version}) не новее установленной ({current}): понижение версии запрещено"),
-        None => anyhow::bail!("не удалось сравнить версии: пакет {version}, установлена {current}"),
+        Some(_) => anyhow::bail!("{}", tr!(format!("версия пакета ({version}) не новее установленной ({current}): понижение версии запрещено"), format!("package version ({version}) is not newer than the installed one ({current}): downgrades are not allowed"))),
+        None => anyhow::bail!("{}", tr!(format!("не удалось сравнить версии: пакет {version}, установлена {current}"), format!("failed to compare versions: package {version}, installed {current}"))),
     }
 }
 
@@ -222,10 +223,10 @@ pub fn manual_install_plan(os: &str, appimage: bool, package: &Path) -> Result<M
     match os {
         "linux" => {
             if !appimage {
-                return Err("Ручное обновление работает только в сборке AppImage.".into());
+                return Err(tr!("Ручное обновление работает только в сборке AppImage.", "Manual update only works with the AppImage build.").into());
             }
             if !name.ends_with(".appimage") {
-                return Err("Для Linux нужен файл .AppImage.".into());
+                return Err(tr!("Для Linux нужен файл .AppImage.", "A .AppImage file is required on Linux.").into());
             }
             Ok(ManualInstall::ReplaceAppImage)
         }
@@ -234,16 +235,16 @@ pub fn manual_install_plan(os: &str, appimage: bool, package: &Path) -> Result<M
             args: vec!["/i".into(), package.to_string_lossy().into_owned(), "/passive".into()],
         }),
         "windows" if name.ends_with(".exe") => Ok(ManualInstall::RunInstaller { program: package.to_string_lossy().into_owned(), args: vec!["/P".into(), "/R".into()] }),
-        "windows" => Err("Для Windows нужен установщик .exe или .msi.".into()),
-        "macos" => Err("Ручное обновление на macOS пока не поддерживается: скачай новую версию и замени приложение.".into()),
-        other => Err(format!("Ручное обновление не поддерживается на этой ОС ({other}).")),
+        "windows" => Err(tr!("Для Windows нужен установщик .exe или .msi.", "A .exe or .msi installer is required on Windows.").into()),
+        "macos" => Err(tr!("Ручное обновление на macOS пока не поддерживается: скачай новую версию и замени приложение.", "Manual update on macOS is not supported yet: download the new version and replace the app.").into()),
+        other => Err(tr!(format!("Ручное обновление не поддерживается на этой ОС ({other})."), format!("Manual update is not supported on this OS ({other})."))),
     }
 }
 
 /// Заменить файл AppImage проверенным пакетом: запись рядом и атомарное переименование.
 pub fn replace_file_atomically(package: &Path, target: &Path) -> Result<()> {
     let tmp = target.with_extension("AppImage.new");
-    std::fs::copy(package, &tmp).with_context(|| format!("не удалось скопировать {}", package.display()))?;
+    std::fs::copy(package, &tmp).with_context(|| tr!(format!("не удалось скопировать {}", package.display()), format!("failed to copy {}", package.display())))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

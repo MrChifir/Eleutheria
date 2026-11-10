@@ -1,9 +1,0 @@
-schema: 1
-id: hysteria2
-name: Hysteria2
-description: QUIC (UDP), быстрый на каналах с потерями. Самоподписанный сертификат, клиент закрепляет ключ.
-description_en: "QUIC (UDP), fast on lossy links. Self-signed certificate, the client pins the key."
-transport: udp
-default_port: 443
-needs_cert: true
-password: hex32

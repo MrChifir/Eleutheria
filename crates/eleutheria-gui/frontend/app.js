@@ -1,5 +1,6 @@
 import * as m from './model.js';
-import { initServer } from './server.js';
+import { initServer, rerender as rerenderServer } from './server.js';
+import { t, initLang, setLang, toggleLang, onLangChange, hasChosen, getLang, detectLang } from './i18n.js';
 import { initUpdates } from './update.js';
 import { initProber } from './prober.js';
 import { initNavPill } from './fx.js';
@@ -13,6 +14,7 @@ let ov = null;
 let latency = null; // { route, servers }
 let busy = false;
 let userMode; // выбор пользователя; undefined = по умолчанию
+let langReady = false; // пока не выбран язык, тур не стартует
 
 function say(text, isErr = false) {
   const el = $('msg');
@@ -40,7 +42,7 @@ function renderServers() {
     delay.textContent = l ? m.formatDelay(l) : '';
     const del = document.createElement('button');
     del.className = 'danger';
-    del.textContent = 'Удалить';
+    del.textContent = t('servers.delete');
     del.disabled = busy;
     del.addEventListener('click', () => removeServer(s.name));
     li.append(name, delay, del);
@@ -52,7 +54,7 @@ function renderServers() {
 function renderServerSelect() {
   const sel = $('server');
   const keep = sel.value;
-  sel.replaceChildren(new Option('Авто (по задержке)', ''));
+  sel.replaceChildren(new Option(t('conn.server.auto'), ''));
   for (const s of ov.servers) sel.append(new Option(s.name, s.name));
   sel.value = ov.servers.some((s) => s.name === keep) ? keep : '';
 }
@@ -95,7 +97,7 @@ async function refresh() {
     ov = await invoke('overview');
     if (!m.isConnected(ov)) latency = null;
     render();
-    guide.maybeAutoStart(ov);
+    if (langReady) guide.maybeAutoStart(ov);
   } catch (e) {
     say(String(e), true);
   }
@@ -119,7 +121,7 @@ async function onMain() {
   const action = $('main-btn').dataset.action;
   if (action === 'connect') {
     await guarded(async () => {
-      say('Подключаюсь…');
+      say(t('msg.connecting'));
       const r = await invoke('connect', { req: m.buildConnectRequest(form()) });
       say(m.connectSummary(r));
       if (r.mode === 'proxy') await loadLatency();
@@ -128,7 +130,7 @@ async function onMain() {
     await guarded(async () => {
       const was = await invoke('disconnect');
       latency = null;
-      say(was ? 'Отключено.' : 'Подключения не было.');
+      say(was ? t('msg.disconnected') : t('msg.noconn'));
     });
   }
 }
@@ -141,26 +143,26 @@ async function loadLatency() {
 async function removeServer(name) {
   await guarded(async () => {
     await invoke('remove_server', { name });
-    say(`Удалён: ${name}`);
+    say(t('msg.removed', { name }));
   });
 }
 
 async function onImport() {
   const source = $('source').value;
-  if (!source.trim()) return say('Вставь ссылку vless:// или URL подписки.', true);
+  if (!source.trim()) return say(t('msg.importEmpty'), true);
   await guarded(async () => {
     const r = await invoke('import_servers', { source, name: $('name').value || null });
     $('source').value = '';
     $('name').value = '';
-    say(`Добавлено: ${r.added.join(', ') || 'ничего'}${r.skipped.length ? `; пропущено: ${r.skipped.length}` : ''}`);
+    say(t('msg.added', { list: r.added.join(', ') || t('msg.added.none') }) + (r.skipped.length ? t('msg.skipped', { n: r.skipped.length }) : ''));
   });
 }
 
 async function onInstallHelper() {
   await guarded(async () => {
-    say('Устанавливаю helper: подтверди запрос прав администратора…');
+    say(t('msg.helper.installing'));
     await invoke('install_helper');
-    say('Helper установлен.');
+    say(t('msg.helper.installed'));
   });
 }
 
@@ -175,8 +177,13 @@ function showTab(name) {
   if (navPill) navPill.sync();
 }
 
-for (const l of m.RU_LEVELS) $('ru').append(new Option(l.label, l.value));
-$('ru').value = 'minimal';
+initLang();
+function fillRuLevels() {
+  const keep = $('ru').value || 'minimal';
+  $('ru').replaceChildren(...m.RU_LEVELS.map((l) => new Option(l.label, l.value)));
+  $('ru').value = keep;
+}
+fillRuLevels();
 $('mode').addEventListener('change', () => { userMode = $('mode').value; });
 $('main-btn').addEventListener('click', onMain);
 $('helper-btn').addEventListener('click', onInstallHelper);
@@ -189,7 +196,42 @@ const guide = initGuide({ showTab });
 const updates = initUpdates({ overview: () => ov, busy: () => busy, guarded, say });
 const prober = initProber({ overview: () => ov, busy: () => busy, say });
 $('import-btn').addEventListener('click', onImport);
-$('latency-btn').addEventListener('click', () => guarded(async () => { say('Измеряю задержки…'); await loadLatency(); say(''); }));
+$('latency-btn').addEventListener('click', () => guarded(async () => { say(t('msg.latency')); await loadLatency(); say(''); }));
+
+// — язык: окно первого запуска, кнопка RU/EN, перевод всего интерфейса на лету —
+const backendLang = () => invoke('set_language', { lang: getLang() }).catch(() => { /* старый бэкенд без команды */ });
+
+onLangChange(async () => {
+  await backendLang(); // сообщения бэкенда (ошибки, категории) тоже сменят язык
+  fillRuLevels();
+  say('');
+  if (ov) render();
+  rerenderServer();
+  prober.loadCats();
+  guide.relang();
+});
+
+$('lang-btn').addEventListener('click', toggleLang);
+
+function chooseLanguage() {
+  const overlay = $('lang-overlay');
+  overlay.classList.remove('hidden');
+  const pre = detectLang();
+  const btns = [...overlay.querySelectorAll('[data-choose]')];
+  for (const b of btns) {
+    b.addEventListener('click', () => {
+      setLang(b.dataset.choose);
+      overlay.classList.add('hidden');
+      langReady = true;
+      if (ov) guide.maybeAutoStart(ov);
+    });
+  }
+  (btns.find((b) => b.dataset.choose === pre) || btns[0]).focus();
+}
+
+if (hasChosen()) langReady = true;
+else chooseLanguage();
+backendLang();
 
 refresh();
 setInterval(() => { if (!busy) refresh(); }, 2500);

@@ -14,6 +14,8 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
+use crate::tr;
+
 /// Идентификатор «категории» общей проверки туннеля (нейтральный URL, не привязан к сайту).
 pub const CANARY: &str = "canary";
 /// Тег прямого выхода (мимо VPN) в пробах и переключателях.
@@ -90,16 +92,16 @@ impl Outcome {
     /// Короткое описание для таблиц.
     pub fn brief(&self) -> String {
         match self {
-            Outcome::Ok { ms } => format!("{ms} мс"),
-            Outcome::Denied { status } => format!("отказ {status}"),
-            Outcome::SiteError { status } => format!("сайт {status}"),
+            Outcome::Ok { ms } => tr!(format!("{ms} мс"), format!("{ms} ms")),
+            Outcome::Denied { status } => tr!(format!("отказ {status}"), format!("denied {status}")),
+            Outcome::SiteError { status } => tr!(format!("сайт {status}"), format!("site {status}")),
             Outcome::Fail { kind } => match kind {
-                FailKind::Timeout => "таймаут",
-                FailKind::Reset => "сброс",
+                FailKind::Timeout => tr!("таймаут", "timeout"),
+                FailKind::Reset => tr!("сброс", "reset"),
                 FailKind::Tls => "TLS",
                 FailKind::Dns => "DNS",
-                FailKind::Proxy => "прокси",
-                FailKind::Other => "ошибка",
+                FailKind::Proxy => tr!("прокси", "proxy"),
+                FailKind::Other => tr!("ошибка", "error"),
             }
             .to_string(),
         }
@@ -237,7 +239,7 @@ pub fn classify(round: &Round, categories: &[String], pol: &DegradedPolicy) -> V
     if !any_tunnel && !direct_canary {
         for cat in std::iter::once(CANARY).chain(categories.iter().map(String::as_str)) {
             for o in &round.outbounds {
-                out.push(Entry { category: cat.into(), tag: o.tag.clone(), verdict: Verdict::Skip, reason: "нет связи ни напрямую, ни через VPN: похоже, пропала сеть".into() });
+                out.push(Entry { category: cat.into(), tag: o.tag.clone(), verdict: Verdict::Skip, reason: tr!("нет связи ни напрямую, ни через VPN: похоже, пропала сеть", "no connectivity either directly or through the VPN: the network seems to be down").into() });
             }
         }
         return out;
@@ -246,12 +248,12 @@ pub fn classify(round: &Round, categories: &[String], pol: &DegradedPolicy) -> V
     // 1. Туннель (canary)
     for o in &round.outbounds {
         let (verdict, reason) = match round.res(&o.tag, CANARY) {
-            None => (Verdict::Skip, "проба не выполнялась".to_string()),
+            None => (Verdict::Skip, tr!("проба не выполнялась", "probe was not run").to_string()),
             Some(Outcome::Ok { ms }) => {
                 let peers: Vec<u64> = round.outbounds.iter().filter(|p| p.tag != o.tag).filter_map(|p| round.res(&p.tag, CANARY)?.ms()).collect();
-                if degraded(*ms, &peers, pol) { (Verdict::Degraded, format!("туннель медленный: {ms} мс")) } else { (Verdict::Ok, format!("{ms} мс")) }
+                if degraded(*ms, &peers, pol) { (Verdict::Degraded, tr!(format!("туннель медленный: {ms} мс"), format!("tunnel is slow: {ms} ms"))) } else { (Verdict::Ok, tr!(format!("{ms} мс"), format!("{ms} ms"))) }
             }
-            Some(Outcome::SiteError { .. }) => (Verdict::Skip, "контрольный сайт вернул ошибку 5xx".to_string()),
+            Some(Outcome::SiteError { .. }) => (Verdict::Skip, tr!("контрольный сайт вернул ошибку 5xx", "control site returned a 5xx error").to_string()),
             Some(fail) => classify_tunnel_failure(round, o, fail),
         };
         out.push(Entry { category: CANARY.into(), tag: o.tag.clone(), verdict, reason });
@@ -272,40 +274,40 @@ fn classify_tunnel_failure(round: &Round, o: &OutboundInfo, fail: &Outcome) -> (
     let same_host = round.outbounds.iter().filter(alive).any(|p| p.host == o.host);
     let other_host: Vec<&OutboundInfo> = round.outbounds.iter().filter(alive).filter(|p| p.host != o.host).collect();
     if same_host {
-        return (Verdict::Failed(FailClass::ProtocolBlocked), format!("{}: {}; другой протокол того же сервера работает", o.kind, fail.brief()));
+        return (Verdict::Failed(FailClass::ProtocolBlocked), tr!(format!("{}: {}; другой протокол того же сервера работает", o.kind, fail.brief()), format!("{}: {}; another protocol on the same server works", o.kind, fail.brief())));
     }
     if !other_host.is_empty() {
         let same_kind_works = other_host.iter().any(|p| p.kind == o.kind);
-        let note = if same_kind_works { "" } else { " (или блокируется протокол: у рабочих серверов другие протоколы)" };
-        return (Verdict::Failed(FailClass::ServerIpBlocked), format!("сервер {}: {}; другие серверы работают{note}", o.host, fail.brief()));
+        let note = if same_kind_works { "" } else { tr!(" (или блокируется протокол: у рабочих серверов другие протоколы)", " (or the protocol is blocked: the working servers use different protocols)") };
+        return (Verdict::Failed(FailClass::ServerIpBlocked), tr!(format!("сервер {}: {}; другие серверы работают{note}", o.host, fail.brief()), format!("server {}: {}; other servers work{note}", o.host, fail.brief())));
     }
-    (Verdict::Failed(FailClass::Unclassified), format!("{}; рабочих путей для сравнения нет", fail.brief()))
+    (Verdict::Failed(FailClass::Unclassified), tr!(format!("{}; рабочих путей для сравнения нет", fail.brief()), format!("{}; no working paths to compare with", fail.brief())))
 }
 
 fn classify_category(round: &Round, o: &OutboundInfo, cat: &str, pol: &DegradedPolicy) -> (Verdict, String) {
     if !round.tunnel_ok(&o.tag) {
-        return (Verdict::Inherit, "туннель недоступен".into());
+        return (Verdict::Inherit, tr!("туннель недоступен", "tunnel unavailable").into());
     }
-    let Some(r) = round.res(&o.tag, cat) else { return (Verdict::Skip, "проба не выполнялась".into()) };
+    let Some(r) = round.res(&o.tag, cat) else { return (Verdict::Skip, tr!("проба не выполнялась", "probe was not run").into()) };
     match r {
-        Outcome::SiteError { status } => (Verdict::Skip, format!("сайт отвечает {status}: проблема не в маршруте")),
+        Outcome::SiteError { status } => (Verdict::Skip, tr!(format!("сайт отвечает {status}: проблема не в маршруте"), format!("site responds {status}: the problem is not the route"))),
         Outcome::Ok { ms } => {
             let peers: Vec<u64> = round.outbounds.iter().filter(|p| p.tag != o.tag && round.tunnel_ok(&p.tag)).filter_map(|p| round.res(&p.tag, cat)?.ms()).collect();
-            if degraded(*ms, &peers, pol) { (Verdict::Degraded, format!("медленно: {ms} мс")) } else { (Verdict::Ok, format!("{ms} мс")) }
+            if degraded(*ms, &peers, pol) { (Verdict::Degraded, tr!(format!("медленно: {ms} мс"), format!("slow: {ms} ms"))) } else { (Verdict::Ok, tr!(format!("{ms} мс"), format!("{ms} ms"))) }
         }
         Outcome::Denied { .. } | Outcome::Fail { .. } => {
             let peers_ok: Vec<&OutboundInfo> = round.outbounds.iter().filter(|p| p.tag != o.tag && round.tunnel_ok(&p.tag) && round.res(&p.tag, cat).is_some_and(Outcome::is_ok)).collect();
             if peers_ok.iter().any(|p| p.exit_id() != o.exit_id()) {
-                return (Verdict::Failed(FailClass::ExitBlockedBySite), format!("{}; через другой выход открывается: выходной IP {} не пускают", r.brief(), o.exit_id()));
+                return (Verdict::Failed(FailClass::ExitBlockedBySite), tr!(format!("{}; через другой выход открывается: выходной IP {} не пускают", r.brief(), o.exit_id()), format!("{}; opens through another exit: the exit IP {} is blocked", r.brief(), o.exit_id())));
             }
             if !peers_ok.is_empty() {
-                return (Verdict::Failed(FailClass::ProtocolBlocked), format!("{}; через другой протокол того же сервера открывается", r.brief()));
+                return (Verdict::Failed(FailClass::ProtocolBlocked), tr!(format!("{}; через другой протокол того же сервера открывается", r.brief()), format!("{}; opens through another protocol on the same server", r.brief())));
             }
             // Ни один VPN-путь не открывает. Сравниваем с прямым доступом.
             match round.direct.get(cat) {
-                Some(d) if d.is_ok() => (Verdict::Failed(FailClass::ExitBlockedBySite), format!("{}; напрямую открывается, через VPN нет: сайт не пускает выходные IP", r.brief())),
-                Some(_) => (Verdict::Skip, format!("{}; недоступен и напрямую: проблема сайта или одинаковый отказ всем", r.brief())),
-                None => (Verdict::Skip, format!("{}; сравнить не с чем", r.brief())),
+                Some(d) if d.is_ok() => (Verdict::Failed(FailClass::ExitBlockedBySite), tr!(format!("{}; напрямую открывается, через VPN нет: сайт не пускает выходные IP", r.brief()), format!("{}; opens directly but not through the VPN: the site blocks exit IPs", r.brief()))),
+                Some(_) => (Verdict::Skip, tr!(format!("{}; недоступен и напрямую: проблема сайта или одинаковый отказ всем", r.brief()), format!("{}; also unavailable directly: a site issue or the same denial for everyone", r.brief()))),
+                None => (Verdict::Skip, tr!(format!("{}; сравнить не с чем", r.brief()), format!("{}; nothing to compare with", r.brief()))),
             }
         }
     }
@@ -539,7 +541,7 @@ impl Router {
                     let hs = tr.get(cat, h);
                     let ts = tr.get(CANARY, h);
                     if hs.health == Health::Healthy && ts.health == Health::Healthy && hs.oks >= self.cfg.release_after && ts.oks >= self.cfg.release_after && !hs.degraded {
-                        return Some(Action::Release { selector: v.selector.clone(), category: v.category.clone(), to: v.home.clone(), reason: format!("{h} снова стабильно работает") });
+                        return Some(Action::Release { selector: v.selector.clone(), category: v.category.clone(), to: v.home.clone(), reason: tr!(format!("{h} снова стабильно работает"), format!("{h} is stable again")) });
                     }
                 }
             }
@@ -556,7 +558,7 @@ impl Router {
             if on_direct && !self.cfg.allow_direct {
                 return None;
             }
-            let why = tr.get(cat, cur).class.or(tr.get(CANARY, cur).class).map(FailClass::as_str).unwrap_or("отказ");
+            let why = tr.get(cat, cur).class.or(tr.get(CANARY, cur).class).map(FailClass::as_str).unwrap_or(tr!("отказ", "denied"));
             // если лучший путь совпал с домом, это возврат, а не закрепление
             if v.home_effective.as_deref() == Some(best.as_str()) && v.current != v.home {
                 return Some(Action::Release { selector: v.selector.clone(), category: v.category.clone(), to: v.home.clone(), reason: format!("{cur}: {why}") });
@@ -576,14 +578,14 @@ impl Router {
             ex.sort_by_key(|t| tr.rank(cat, t, pos(t)));
             if let Some(best) = ex.first() {
                 if v.current != **best {
-                    return Some(Action::Pin { selector: v.selector.clone(), category: v.category.clone(), tag: (*best).clone(), reason: format!("{cur}: сайт не пускает выходной IP, через внешний exit открывается") });
+                    return Some(Action::Pin { selector: v.selector.clone(), category: v.category.clone(), tag: (*best).clone(), reason: tr!(format!("{cur}: сайт не пускает выходной IP, через внешний exit открывается"), format!("{cur}: the site blocks the exit IP, opens through the external exit")) });
                 }
                 return None;
             }
         }
         // VPN-путей не осталось
         if self.cfg.allow_direct && cat != CANARY && tr.direct_ok(cat) && v.current != DIRECT {
-            return Some(Action::Pin { selector: v.selector.clone(), category: v.category.clone(), tag: DIRECT.into(), reason: "ни один VPN-путь не открывает, напрямую открывается".into() });
+            return Some(Action::Pin { selector: v.selector.clone(), category: v.category.clone(), tag: DIRECT.into(), reason: tr!("ни один VPN-путь не открывает, напрямую открывается", "no VPN path opens it, direct access works").into() });
         }
         None
     }

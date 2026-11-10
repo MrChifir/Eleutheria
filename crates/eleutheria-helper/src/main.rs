@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use eleutheria_helper::HelperConfig;
+use eleutheria_core::tr;
 
 fn load_config() -> Result<HelperConfig> {
     let default = if cfg!(windows) {
@@ -11,8 +12,8 @@ fn load_config() -> Result<HelperConfig> {
         PathBuf::from("/etc/eleutheria/helper.json")
     };
     let cfg_path = std::env::var_os("ELEUTHERIA_HELPER_CONFIG").map(PathBuf::from).unwrap_or(default);
-    serde_json::from_slice(&std::fs::read(&cfg_path).with_context(|| format!("нет конфига helper'а {}", cfg_path.display()))?)
-        .context("конфиг helper'а повреждён")
+    serde_json::from_slice(&std::fs::read(&cfg_path).with_context(|| tr!(format!("нет конфига helper'а {}", cfg_path.display()), format!("helper config not found: {}", cfg_path.display())))?)
+        .context(tr!("конфиг helper'а повреждён", "helper config is corrupted"))
 }
 
 fn main() -> Result<()> {
@@ -25,7 +26,10 @@ fn main() -> Result<()> {
             println!("eleutheria-helper {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        Some(other) => anyhow::bail!("неизвестная команда `{other}` (поддерживается `run`{})", if cfg!(windows) { " и `service`" } else { "" }),
+        Some(other) => {
+            let extra = if cfg!(windows) { tr!(" и `service`", " and `service`") } else { "" };
+            anyhow::bail!("{}", tr!(format!("неизвестная команда `{other}` (поддерживается `run`{extra})"), format!("unknown command `{other}` (supported: `run`{extra})")))
+        }
     }
 }
 
@@ -35,7 +39,7 @@ mod platform {
     use std::path::PathBuf;
 
     use anyhow::{Context, Result};
-    use eleutheria_core::ipc;
+    use eleutheria_core::{ipc, tr};
     use eleutheria_helper::{cleanup_stale_rules, Helper};
     use tokio::net::UnixListener;
     use tokio::signal::unix::{signal, SignalKind};
@@ -51,14 +55,14 @@ mod platform {
             std::fs::create_dir_all(dir)?;
         }
         let _ = std::fs::remove_file(&sock);
-        let listener = UnixListener::bind(&sock).with_context(|| format!("не удалось создать сокет {}", sock.display()))?;
+        let listener = UnixListener::bind(&sock).with_context(|| tr!(format!("не удалось создать сокет {}", sock.display()), format!("failed to create socket {}", sock.display())))?;
         // владелец установки и 0600: посторонний пользователь не сможет даже подключиться
         std::os::unix::fs::chown(&sock, Some(cfg.allowed_uid), None)?;
         std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o600))?;
 
         cleanup_stale_rules().await; // следы предыдущего аварийного завершения
         let helper = Helper::new(cfg.clone());
-        eprintln!("eleutheria-helper {} слушает {} (uid {})", env!("CARGO_PKG_VERSION"), sock.display(), cfg.allowed_uid);
+        eprintln!("{}", tr!(format!("eleutheria-helper {} слушает {} (uid {})", env!("CARGO_PKG_VERSION"), sock.display(), cfg.allowed_uid), format!("eleutheria-helper {} listening on {} (uid {})", env!("CARGO_PKG_VERSION"), sock.display(), cfg.allowed_uid)));
 
         let h = helper.clone();
         let server = tokio::spawn(ipc::serve(listener, cfg.allowed_uid, move |req| {
@@ -70,7 +74,7 @@ mod platform {
         tokio::select! {
             _ = term.recv() => {}
             _ = tokio::signal::ctrl_c() => {}
-            r = server => { eprintln!("сервер IPC завершился: {r:?}"); }
+            r = server => { eprintln!("{}", tr!(format!("сервер IPC завершился: {r:?}"), format!("IPC server exited: {r:?}"))); }
         }
         helper.stop().await;
         cleanup_stale_rules().await;
@@ -113,7 +117,7 @@ mod platform {
         let cfg = super::load_config()?;
         let sddl = winhelper::pipe_sddl(&cfg.allowed_sid)?;
         let helper = Helper::new(cfg.clone());
-        log(&format!("eleutheria-helper {} слушает {} (SID {})", env!("CARGO_PKG_VERSION"), cfg.socket_path, cfg.allowed_sid));
+        log(&tr!(format!("eleutheria-helper {} слушает {} (SID {})", env!("CARGO_PKG_VERSION"), cfg.socket_path, cfg.allowed_sid), format!("eleutheria-helper {} listening on {} (SID {})", env!("CARGO_PKG_VERSION"), cfg.socket_path, cfg.allowed_sid)));
 
         let h = helper.clone();
         let name = cfg.socket_path.clone();
@@ -126,7 +130,7 @@ mod platform {
         });
         tokio::select! {
             _ = stop => {}
-            r = server => { log(&format!("сервер IPC завершился: {r:?}")); }
+            r = server => { log(&tr!(format!("сервер IPC завершился: {r:?}"), format!("IPC server exited: {r:?}"))); }
         }
         helper.stop().await;
         Ok(())
@@ -151,7 +155,7 @@ mod platform {
 
     fn service_main(_args: Vec<OsString>) {
         if let Err(e) = service_body() {
-            log(&format!("служба завершилась с ошибкой: {e:#}"));
+            log(&tr!(format!("служба завершилась с ошибкой: {e:#}"), format!("service exited with an error: {e:#}")));
         }
     }
 

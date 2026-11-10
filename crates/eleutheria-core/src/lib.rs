@@ -2,6 +2,7 @@ pub mod client;
 pub mod config;
 pub mod fleet;
 pub mod harden;
+pub mod i18n;
 #[cfg(unix)]
 pub mod helper_install;
 #[cfg(windows)]

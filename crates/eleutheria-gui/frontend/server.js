@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import * as sm from './servermodel.js';
 import * as um from './updatemodel.js';
 import { initPartners } from './partners.js';
@@ -63,11 +64,11 @@ function renderProtocols() {
     li.className = 'line';
     const n = document.createElement('span');
     n.className = 'name';
-    n.textContent = `${row.label}${row.on ? ' · включён' : ''}`;
+    n.textContent = row.on ? t('proto.on', { label: row.label }) : row.label;
     n.title = row.hint;
     const btn = document.createElement('button');
     btn.className = row.on ? 'small danger' : 'small';
-    btn.textContent = row.on ? 'Выключить' : 'Включить';
+    btn.textContent = row.on ? t('proto.disable') : t('proto.enable');
     btn.disabled = busy || !ready();
     btn.addEventListener('click', () => setProtocol(row.id, row.action));
     li.append(n, btn);
@@ -78,13 +79,13 @@ function renderProtocols() {
 async function setProtocol(id, action) {
   await guarded(async () => {
     $('log').textContent = '';
-    say(action === 'enable' ? 'Включаю протокол на сервере…' : 'Выключаю протокол на сервере…');
+    say(action === 'enable' ? t('sm.proto.enabling') : t('sm.proto.disabling'));
     users = await invoke('set_protocols', {
       conn: sm.buildConn(form(), probe, $('trust').checked),
       enable: action === 'enable' ? [id] : [],
       disable: action === 'disable' ? [id] : [],
     });
-    say(action === 'enable' ? 'Протокол включён. Ссылки пользователей обновлены, сервер добавлен в список клиента.' : 'Протокол выключен.');
+    say(action === 'enable' ? t('sm.proto.enabled') : t('sm.proto.disabled'));
   });
 }
 
@@ -103,12 +104,12 @@ function renderUsers() {
     n.textContent = name;
     const linkBtn = document.createElement('button');
     linkBtn.className = 'small';
-    linkBtn.textContent = 'Ссылка';
+    linkBtn.textContent = t('users.link');
     const del = document.createElement('button');
     del.className = 'danger';
-    del.textContent = 'Удалить';
+    del.textContent = t('users.delete');
     del.disabled = busy || !removable;
-    del.title = removable ? '' : 'Нельзя удалить последнего пользователя';
+    del.title = removable ? '' : t('users.lastOne');
     del.addEventListener('click', () => removeUser(name));
     line.append(n, linkBtn, del);
     li.append(line);
@@ -134,7 +135,7 @@ function renderUsers() {
 export function qrImage(svg) {
   const img = document.createElement('img');
   img.className = 'qr';
-  img.alt = 'QR-код ссылки';
+  img.alt = t('link.qr.alt');
   img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   return img;
 }
@@ -150,14 +151,14 @@ function linkRow(link, qrSvg) {
   input.addEventListener('focus', () => input.select());
   const copy = document.createElement('button');
   copy.className = 'small';
-  copy.textContent = 'Копировать';
+  copy.textContent = t('link.copy');
   copy.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(link);
-      copy.textContent = 'Скопировано';
+      copy.textContent = t('link.copied');
     } catch {
       input.select();
-      copy.textContent = 'Выдели и скопируй';
+      copy.textContent = t('link.manual');
     }
   });
   row.append(input, copy);
@@ -184,9 +185,9 @@ async function onProbe() {
   probe = null;
   $('trust').checked = false;
   await guarded(async () => {
-    say('Проверяю ключ сервера…');
+    say(t('sm.probing'));
     const port = sm.parsePort($('s-sshport').value);
-    if (!port.ok) throw new Error('Порт SSH: число от 1 до 65535');
+    if (!port.ok) throw new Error(t('err.sshPort'));
     probe = await invoke('probe_host_key', { host: $('s-host').value.trim(), port: port.value || 22 });
     say('');
   });
@@ -201,7 +202,7 @@ async function onProvision() {
     });
     $('log').textContent = '';
     $('result').classList.add('hidden');
-    say('Установка идёт, это займёт несколько минут. Не закрывай окно.');
+    say(t('sm.provisioning'));
     const r = await invoke('provision', { conn: sm.buildConn(form(), probe, $('trust').checked), req });
     $('s-pass').value = ''; // пароль больше не нужен: дальше вход по сохранённому ключу
     // ключ хоста теперь сохранён: обновляем проверку, иначе без пароля кнопки «Пользователи» остались бы заблокированы
@@ -210,7 +211,7 @@ async function onProvision() {
       $('trust').checked = false;
     } catch { /* не критично: можно нажать «Проверить сервер» вручную */ }
     showResult(r);
-    say(r.savedAs ? `Готово. Сервер добавлен в список клиента как «${r.savedAs}».` : 'Готово.');
+    say(r.savedAs ? t('sm.done.saved', { name: r.savedAs }) : t('sm.done'));
   });
 }
 
@@ -226,35 +227,35 @@ function showResult(r) {
   }
   box.append(ul);
   for (const l of r.links) {
-    const t = document.createElement('div');
-    t.className = 'muted';
-    t.textContent = `${sm.protoLabel(l.proto)}: ссылка для «${l.name}» (Happ, Hiddify, v2rayN, sing-box…):`;
-    box.append(t, linkRow(l.link, l.qrSvg));
+    const cap = document.createElement('div');
+    cap.className = 'muted';
+    cap.textContent = t('sm.linkFor', { proto: sm.protoLabel(l.proto), name: l.name });
+    box.append(cap, linkRow(l.link, l.qrSvg));
   }
   box.classList.remove('hidden');
 }
 
 async function checkServerVersion() {
   await guarded(async () => {
-    say('Проверяю версию сервера…');
+    say(t('sm.checkingVersion'));
     srvUpdate = await invoke('server_update_status', { conn: sm.buildConn(form(), probe, $('trust').checked) });
     say('');
   });
 }
 
 async function updateServer() {
-  if (!window.confirm('Обновить sing-box на сервере? VPN прервётся на несколько секунд. Если новая версия не запустится, вернётся прежняя.')) return;
+  if (!window.confirm(t('sm.confirmUpdate'))) return;
   await guarded(async () => {
     $('log').textContent = '';
-    say('Обновляю сервер, не закрывай окно…');
+    say(t('sm.updating'));
     srvUpdate = await invoke('update_server', { conn: sm.buildConn(form(), probe, $('trust').checked) });
-    say(`Готово: sing-box ${srvUpdate.installed} на сервере.`);
+    say(t('sm.updated', { v: srvUpdate.installed }));
   });
 }
 
 async function loadUsers() {
   await guarded(async () => {
-    say('Загружаю пользователей…');
+    say(t('sm.loadingUsers'));
     users = await invoke('list_users', { conn: sm.buildConn(form(), probe, $('trust').checked) });
     say('');
   });
@@ -262,22 +263,26 @@ async function loadUsers() {
 
 async function addUser() {
   const name = $('new-user').value.trim();
-  if (!sm.validUserName(name)) return say('Имя: латиница, цифры, _ и -, до 32 символов.', true);
+  if (!sm.validUserName(name)) return say(t('err.userName'), true);
   await guarded(async () => {
-    say('Добавляю пользователя…');
+    say(t('sm.addingUser'));
     users = await invoke('add_user', { conn: sm.buildConn(form(), probe, $('trust').checked), name });
     $('new-user').value = '';
-    say(`Пользователь «${name}» добавлен.`);
+    say(t('sm.userAdded', { name }));
   });
 }
 
 async function removeUser(name) {
-  if (!window.confirm(`Удалить «${name}»? Его ссылка перестанет работать.`)) return;
+  if (!window.confirm(t('sm.confirmRemove', { name }))) return;
   await guarded(async () => {
-    say('Удаляю пользователя…');
+    say(t('sm.removingUser'));
     users = await invoke('remove_user', { conn: sm.buildConn(form(), probe, $('trust').checked), name });
-    say(`Пользователь «${name}» удалён.`);
+    say(t('sm.userRemoved', { name }));
   });
+}
+
+export function rerender() {
+  render();
 }
 
 export function initServer() {

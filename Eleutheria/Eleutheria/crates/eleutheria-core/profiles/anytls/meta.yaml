@@ -1,8 +1,0 @@
-schema: 1
-id: anytls
-name: AnyTLS
-description: "TCP + TLS с переиспользованием соединений и случайным добиванием пакетов против анализа длин. Самоподписанный сертификат, клиент закрепляет ключ."
-transport: tcp
-default_port: 4443
-needs_cert: true
-password: hex32

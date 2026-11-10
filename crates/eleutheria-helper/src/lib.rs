@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use eleutheria_core::client::config::{self, ClientOpts};
 use eleutheria_core::ipc::{Request, Response, StartParams, StatusInfo};
 use eleutheria_core::store::write_secret_file;
+use eleutheria_core::tr;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
@@ -125,7 +126,7 @@ fn secret() -> String {
 #[cfg(windows)]
 fn restrict_dir(dir: &std::path::Path) -> Result<()> {
     let args = eleutheria_core::winhelper::icacls_lockdown_args(dir);
-    let out = std::process::Command::new("icacls").args(&args).output().context("не удалось запустить icacls")?;
+    let out = std::process::Command::new("icacls").args(&args).output().context(tr!("не удалось запустить icacls", "failed to launch icacls"))?;
     if !out.status.success() {
         bail!("icacls: {}", String::from_utf8_lossy(&out.stdout).trim());
     }
@@ -182,26 +183,32 @@ impl Helper {
 
     fn validate(p: &StartParams) -> Result<()> {
         if p.servers.is_empty() || p.servers.len() > 50 {
-            bail!("нужно от 1 до 50 серверов");
+            bail!("{}", tr!("нужно от 1 до 50 серверов", "1 to 50 servers are required"));
         }
         for s in &p.servers {
-            s.validate().with_context(|| format!("сервер `{}`", s.name.chars().take(32).collect::<String>()))?;
+            s.validate().with_context(|| tr!(format!("сервер `{}`", s.name.chars().take(32).collect::<String>()), format!("server `{}`", s.name.chars().take(32).collect::<String>())))?;
         }
         let u = &p.test_url;
         if !u.starts_with("https://") || u.len() > 512 || u.chars().any(|c| c.is_control() || c.is_whitespace() || c == '"' || c == '\\') {
-            bail!("недопустимый test_url");
+            bail!("{}", tr!("недопустимый test_url", "invalid test_url"));
         }
-        eleutheria_core::client::categories::validate(&p.categories).context("категории")?;
-        let set = eleutheria_core::userprofiles::profile_set(&p.profiles).context("сторонние профили")?;
+        eleutheria_core::client::categories::validate(&p.categories).context(tr!("категории", "categories"))?;
+        let set = eleutheria_core::userprofiles::profile_set(&p.profiles).context(tr!("сторонние профили", "third-party profiles"))?;
         for s in p.servers.iter().filter(|s| s.kind == eleutheria_core::client::profile::Kind::Custom) {
             let id = s.profile.as_deref().unwrap_or("");
             if !set.contains_key(id) {
-                bail!("сервер `{}`: профиль `{}` не передан", s.name.chars().take(32).collect::<String>(), id.chars().take(32).collect::<String>());
+                {
+                    let (n, i) = (s.name.chars().take(32).collect::<String>(), id.chars().take(32).collect::<String>());
+                    bail!("{}", tr!(format!("сервер `{n}`: профиль `{i}` не передан"), format!("server `{n}`: profile `{i}` was not provided")));
+                }
             }
         }
         if let Some(sel) = &p.selected {
             if !p.servers.iter().any(|s| &s.name == sel) {
-                bail!("сервера `{}` нет в списке", sel.chars().take(32).collect::<String>());
+                {
+                    let n = sel.chars().take(32).collect::<String>();
+                    bail!("{}", tr!(format!("сервера `{n}` нет в списке"), format!("server `{n}` is not in the list")));
+                }
             }
         }
         Ok(())
@@ -247,9 +254,12 @@ impl Helper {
             .arg(&cfg_path)
             .output()
             .await
-            .with_context(|| format!("не удалось запустить {}", self.cfg.singbox_path))?;
+            .with_context(|| tr!(format!("не удалось запустить {}", self.cfg.singbox_path), format!("failed to launch {}", self.cfg.singbox_path)))?;
         if !chk.status.success() {
-            bail!("sing-box отклонил конфиг: {}", String::from_utf8_lossy(&chk.stderr).trim());
+            {
+            let e = String::from_utf8_lossy(&chk.stderr).trim().to_string();
+            bail!("{}", tr!(format!("sing-box отклонил конфиг: {e}"), format!("sing-box rejected the config: {e}")));
+        }
         }
 
         let log_path = dir.join("sing-box.log");
@@ -261,8 +271,8 @@ impl Helper {
             .stdout(log.try_clone()?)
             .stderr(log)
             .spawn()
-            .context("не удалось запустить sing-box")?;
-        let pid = child.id().context("нет pid у sing-box")?;
+            .context(tr!("не удалось запустить sing-box", "failed to launch sing-box"))?;
+        let pid = child.id().context(tr!("нет pid у sing-box", "sing-box has no pid"))?;
 
         let info = StatusInfo {
             running: true,
@@ -307,7 +317,10 @@ impl Helper {
             .map(str::to_string)
             .collect();
         let tail: Vec<String> = tail.into_iter().rev().collect();
-        bail!("sing-box не запустился. Лог:\n{}", tail.join("\n"));
+        {
+        let log = tail.join("\n");
+        bail!("{}", tr!(format!("sing-box не запустился. Лог:\n{log}"), format!("sing-box failed to start. Log:\n{log}")));
+    }
     }
 }
 

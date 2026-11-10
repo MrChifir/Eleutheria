@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Гид: вкладка со справкой и пошаговый тур с подсветкой элементов. Тексты и расчёты живут в guidemodel.js.
 // Стили задаются через CSSOM (el.style.*), а не атрибутом style, поэтому CSP `style-src 'self'` это допускает.
 import * as gm from './guidemodel.js';
@@ -65,18 +66,18 @@ export function initGuide(ctx) {
     layer = el('div', 'tour-layer');
     layer.setAttribute('role', 'dialog');
     layer.setAttribute('aria-modal', 'true');
-    layer.setAttribute('aria-label', 'Тур по приложению');
+    layer.setAttribute('aria-label', t('tour.aria'));
     hole = el('div', 'tour-hole');
     card = el('div', 'tour-card');
     countEl = el('div', 'tour-count');
     titleEl = el('h3', 'tour-title');
     textEl = el('div', 'tour-text');
     const actions = el('div', 'tour-actions');
-    skipBtn = el('button', 'tour-skip', 'Пропустить');
+    skipBtn = el('button', 'tour-skip', t('tour.skip'));
     skipBtn.type = 'button';
-    backBtn = el('button', 'small', 'Назад');
+    backBtn = el('button', 'small', t('tour.back'));
     backBtn.type = 'button';
-    nextBtn = el('button', 'small tour-next', 'Далее');
+    nextBtn = el('button', 'small tour-next', t('tour.next'));
     nextBtn.type = 'button';
     const right = el('div', 'tour-right');
     right.append(backBtn, nextBtn);
@@ -140,14 +141,14 @@ export function initGuide(ctx) {
     textEl.textContent = step.text;
     backBtn.disabled = idx === 0;
     const last = gm.isLast(idx, gm.STEPS.length);
-    nextBtn.textContent = last ? 'Закончить' : 'Далее';
+    nextBtn.textContent = last ? t('tour.finish') : t('tour.next');
     skipBtn.classList.toggle('hidden', last);
-    const t = targetEl(step);
+    const tgt = targetEl(step);
     // вкладка могла только что показаться: даём разметке обновиться, затем прокручиваем к элементу и ставим подсветку
     const raf = window.requestAnimationFrame ? (f) => window.requestAnimationFrame(f) : (f) => setTimeout(f, 16);
     const align = () => {
       if (!open() || idx !== i) return;
-      if (t && t.scrollIntoView) t.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (tgt && tgt.scrollIntoView) tgt.scrollIntoView({ block: 'center', inline: 'nearest' });
       place();
     };
     raf(() => { align(); if (open()) nextBtn.focus({ preventScroll: true }); });
@@ -182,6 +183,16 @@ export function initGuide(ctx) {
   return {
     start,
     isOpen: open,
+    /** Смена языка: перерисовать справку и текущий шаг тура. */
+    relang() {
+      if (body) renderGuide(body);
+      if (open()) {
+        layer.setAttribute('aria-label', t('tour.aria'));
+        skipBtn.textContent = t('tour.skip');
+        backBtn.textContent = t('tour.back');
+        go(idx);
+      }
+    },
     /** Первый запуск: если тур ещё не показывали и серверов нет, предлагаем его сразу. */
     maybeAutoStart(ov) {
       if (auto || !ov) return;
