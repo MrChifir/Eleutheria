@@ -22,7 +22,7 @@ fn paths() -> winhelper::WinPaths {
 
 /// Вызвать системную утилиту, вернуть (успех, stdout).
 fn run_capture(cmd: &str, args: &[String]) -> Result<(bool, String)> {
-    let o = Command::new(cmd).args(args).output().with_context(|| format!("не удалось запустить {cmd}"))?;
+    let o = Command::new(cmd).args(args).output().with_context(|| crate::tr!(format!("не удалось запустить {cmd}"), format!("failed to run {cmd}")))?;
     let mut text = String::from_utf8_lossy(&o.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&o.stderr));
     Ok((o.status.success(), text))
@@ -31,7 +31,7 @@ fn run_capture(cmd: &str, args: &[String]) -> Result<(bool, String)> {
 fn run_ok(cmd: &str, args: &[String]) -> Result<()> {
     let (ok, out) = run_capture(cmd, args)?;
     if !ok {
-        bail!("`{cmd} {}` завершилась с ошибкой: {}", args.first().map(String::as_str).unwrap_or(""), out.trim());
+        bail!("{}", crate::tr!(format!("`{cmd} {}` завершилась с ошибкой: {}", args.first().map(String::as_str).unwrap_or(""), out.trim()), format!("`{cmd} {}` failed: {}", args.first().map(String::as_str).unwrap_or(""), out.trim())));
     }
     Ok(())
 }
@@ -74,7 +74,7 @@ async fn wait_state(want: SvcState, secs: u64) -> bool {
 /// Копирование с повторами: сразу после остановки службы файл может быть ещё занят.
 async fn copy_exe(src: &Path, dst: &Path) -> Result<()> {
     let tmp = dst.with_extension("part");
-    fs::copy(src, &tmp).with_context(|| format!("не удалось скопировать {} в {}", src.display(), tmp.display()))?;
+    fs::copy(src, &tmp).with_context(|| crate::tr!(format!("не удалось скопировать {} в {}", src.display(), tmp.display()), format!("failed to copy {} to {}", src.display(), tmp.display())))?;
     let mut last = None;
     for _ in 0..20 {
         match fs::rename(&tmp, dst) {
@@ -86,30 +86,30 @@ async fn copy_exe(src: &Path, dst: &Path) -> Result<()> {
         }
     }
     let _ = fs::remove_file(&tmp);
-    Err(anyhow::Error::from(last.unwrap())).with_context(|| format!("не удалось заменить {} (файл занят?)", dst.display()))
+    Err(anyhow::Error::from(last.unwrap())).with_context(|| crate::tr!(format!("не удалось заменить {} (файл занят?)", dst.display()), format!("failed to replace {} (file in use?)", dst.display())))
 }
 
 pub async fn install(allowed_sid: &str, helper_src: &Path, report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     if !is_elevated() {
-        bail!("нужны права администратора: запусти терминал «От имени администратора» и повтори `eleutheria helper install`");
+        bail!("{}", crate::tr!("нужны права администратора: запусти терминал «От имени администратора» и повтори `eleutheria helper install`", "administrator privileges required: run the terminal as Administrator and repeat `eleutheria helper install`"));
     }
     if !helper_src.exists() {
-        bail!("не найден helper {} (он должен лежать рядом с eleutheria.exe)", helper_src.display());
+        bail!("{}", crate::tr!(format!("не найден helper {} (он должен лежать рядом с eleutheria.exe)", helper_src.display()), format!("helper {} not found (it must be next to eleutheria.exe)", helper_src.display())));
     }
     winhelper::pipe_sddl(allowed_sid)?; // проверяет SID до любых изменений в системе
-    report("Готовлю sing-box (проверка SHA256)…");
+    report(crate::tr!("Готовлю sing-box (проверка SHA256)…", "Preparing sing-box (SHA256 check)…"));
     let sb_exe = singbox::ensure_local_binary().await?;
 
     let p = paths();
     if matches!(service_state(), SvcState::Running | SvcState::Other) {
-        report("Останавливаю старую версию службы…");
+        report(crate::tr!("Останавливаю старую версию службы…", "Stopping the old service version…"));
         let _ = sc(&["stop", SERVICE_NAME]);
         if !wait_state(SvcState::Stopped, 20).await {
-            bail!("служба {SERVICE_NAME} не остановилась за 20 секунд");
+            bail!("{}", crate::tr!(format!("служба {SERVICE_NAME} не остановилась за 20 секунд"), format!("service {SERVICE_NAME} did not stop within 20 seconds")));
         }
     }
 
-    report(&format!("Копирую файлы в {}", p.bin_dir.display()));
+    report(&crate::tr!(format!("Копирую файлы в {}", p.bin_dir.display()), format!("Copying files to {}", p.bin_dir.display())));
     fs::create_dir_all(&p.bin_dir)?;
     copy_exe(&sb_exe, &p.singbox_exe).await?;
     copy_exe(helper_src, &p.helper_exe).await?;
@@ -126,7 +126,7 @@ pub async fn install(allowed_sid: &str, helper_src: &Path, report: &(dyn Fn(&str
 
     // каталог с конфигом и рабочими файлами sing-box (в них учётные данные серверов): только SYSTEM и администраторы
     fs::create_dir_all(&p.runtime_dir)?;
-    run_ok("icacls", &winhelper::icacls_lockdown_args(&p.config_dir)).context("не удалось закрыть доступ к каталогу данных")?;
+    run_ok("icacls", &winhelper::icacls_lockdown_args(&p.config_dir)).context(crate::tr!("не удалось закрыть доступ к каталогу данных", "failed to lock down the data directory"))?;
 
     let cfg = serde_json::json!({
         "allowed_sid": allowed_sid,
@@ -138,26 +138,26 @@ pub async fn install(allowed_sid: &str, helper_src: &Path, report: &(dyn Fn(&str
 
     let args = winhelper::sc_create_args(&p.helper_exe);
     if service_state() == SvcState::Missing {
-        run_ok("sc", &args).context("не удалось создать службу")?;
-        let _ = run_capture("sc", &["description".into(), SERVICE_NAME.into(), "Eleutheria: запускает sing-box в режиме TUN по запросу владельца установки".into()]);
+        run_ok("sc", &args).context(crate::tr!("не удалось создать службу", "failed to create the service"))?;
+        let _ = run_capture("sc", &["description".into(), SERVICE_NAME.into(), crate::tr!("Eleutheria: запускает sing-box в режиме TUN по запросу владельца установки", "Eleutheria: runs sing-box in TUN mode on request of the installation owner").into()]);
     } else {
         let mut a = args;
         a[0] = "config".into();
-        run_ok("sc", &a).context("не удалось обновить службу")?;
+        run_ok("sc", &a).context(crate::tr!("не удалось обновить службу", "failed to update the service"))?;
     }
     let _ = run_capture("sc", &winhelper::sc_failure_args());
 
-    run_ok("sc", &["start".into(), SERVICE_NAME.into()]).context("не удалось запустить службу")?;
+    run_ok("sc", &["start".into(), SERVICE_NAME.into()]).context(crate::tr!("не удалось запустить службу", "failed to start the service"))?;
     if !wait_state(SvcState::Running, 20).await {
-        bail!("служба {SERVICE_NAME} не перешла в состояние «работает». Подробности: Просмотр событий → Журналы Windows → Система");
+        bail!("{}", crate::tr!(format!("служба {SERVICE_NAME} не перешла в состояние «работает». Подробности: Просмотр событий → Журналы Windows → Система"), format!("service {SERVICE_NAME} did not reach the running state. Details: Event Viewer → Windows Logs → System")));
     }
-    report(&format!("Служба установлена; доступ только для SID {allowed_sid}, SYSTEM и администраторов"));
+    report(&crate::tr!(format!("Служба установлена; доступ только для SID {allowed_sid}, SYSTEM и администраторов"), format!("Service installed; access only for SID {allowed_sid}, SYSTEM and administrators")));
     Ok(())
 }
 
 pub fn uninstall(report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     if !is_elevated() {
-        bail!("нужны права администратора: запусти терминал «От имени администратора» и повтори `eleutheria helper uninstall`");
+        bail!("{}", crate::tr!("нужны права администратора: запусти терминал «От имени администратора» и повтори `eleutheria helper uninstall`", "administrator privileges required: run the terminal as Administrator and repeat `eleutheria helper uninstall`"));
     }
     if service_state() != SvcState::Missing {
         let _ = sc(&["stop", SERVICE_NAME]);
@@ -182,6 +182,6 @@ pub fn uninstall(report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     }
     let _ = fs::remove_dir(&p.bin_dir);
     let _ = fs::remove_dir_all(&p.config_dir);
-    report("Служба и файлы удалены");
+    report(crate::tr!("Служба и файлы удалены", "Service and files removed"));
     Ok(())
 }

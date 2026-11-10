@@ -17,6 +17,7 @@ use eleutheria_core::ssh::{Auth, AuthRejected, HostKeyVerifier, Ssh, Target};
 use eleutheria_core::state::{valid_user_name, Proto, State};
 use eleutheria_core::store::{self, HostCheck};
 use eleutheria_core::users;
+use eleutheria_core::tr;
 use serde::{Deserialize, Serialize};
 
 /// Сообщения о ходе работы (в GUI уходят событием).
@@ -77,18 +78,18 @@ impl SshConn {
     /// Проверка полей до любых сетевых действий. `has_saved_key`: для хоста уже есть сохранённый ключ.
     pub fn validate(&self, has_saved_key: bool) -> Result<()> {
         if !valid_host(&self.host) {
-            bail!("некорректный адрес сервера");
+            bail!("{}", tr!("некорректный адрес сервера", "invalid server address"));
         }
         if !valid_ssh_user(&self.user) {
-            bail!("некорректное имя пользователя SSH");
+            bail!("{}", tr!("некорректное имя пользователя SSH", "invalid SSH username"));
         }
         if self.ssh_port == 0 {
-            bail!("порт SSH должен быть от 1 до 65535");
+            bail!("{}", tr!("порт SSH должен быть от 1 до 65535", "SSH port must be between 1 and 65535"));
         }
         let has_pw = self.password.as_deref().is_some_and(|p| !p.is_empty());
         let has_key = self.key_path.as_deref().is_some_and(|p| !p.trim().is_empty());
         if !has_pw && !has_key && !has_saved_key {
-            bail!("укажи пароль SSH или путь к ключу");
+            bail!("{}", tr!("укажи пароль SSH или путь к ключу", "enter an SSH password or a key path"));
         }
         Ok(())
     }
@@ -147,7 +148,7 @@ fn verifier(host: &str, port: u16, trusted: Option<String>) -> HostKeyVerifier {
 /// Получить fingerprint ключа сервера, не входя на него. Соединение намеренно обрывается на проверке ключа.
 pub async fn probe_host_key(host: &str, port: u16) -> Result<HostKeyProbe> {
     if !valid_host(host) || port == 0 {
-        bail!("некорректный адрес или порт");
+        bail!("{}", tr!("некорректный адрес или порт", "invalid address or port"));
     }
     let seen: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let s2 = seen.clone();
@@ -164,8 +165,8 @@ pub async fn probe_host_key(host: &str, port: u16) -> Result<HostKeyProbe> {
             Ok(HostKeyProbe { fingerprint: fp, status })
         }
         None => Err(match r {
-            Err(e) => e.context("не удалось получить ключ сервера"),
-            Ok(_) => anyhow!("не удалось получить ключ сервера"),
+            Err(e) => e.context(tr!("не удалось получить ключ сервера", "failed to get the server key")),
+            Ok(_) => anyhow!("{}", tr!("не удалось получить ключ сервера", "failed to get the server key")),
         }),
     }
 }
@@ -181,10 +182,10 @@ async fn connect(c: &SshConn) -> Result<Ssh> {
     if let Some(pw) = c.password.clone().filter(|p| !p.is_empty()) {
         return Ssh::connect(&target(Auth::Password(pw)), mk()).await;
     }
-    let Some(saved) = saved else { bail!("нет сохранённого ключа и пароля для входа") };
+    let Some(saved) = saved else { bail!("{}", tr!("нет сохранённого ключа и пароля для входа", "no saved key and no password to log in")) };
     match Ssh::connect(&target(Auth::KeyPem { pem: saved.pem }), mk()).await {
         Err(e) if e.downcast_ref::<AuthRejected>().is_some() => {
-            bail!("сохранённый ключ не подошёл (сервер переустановлен?): введи пароль SSH")
+            bail!("{}", tr!("сохранённый ключ не подошёл (сервер переустановлен?): введи пароль SSH", "the saved key was rejected (server reinstalled?): enter the SSH password"))
         }
         other => other,
     }
@@ -231,20 +232,20 @@ fn yes() -> bool {
 impl ProvisionRequest {
     pub fn validate(&self) -> Result<()> {
         if self.port == Some(0) {
-            bail!("порт VPN должен быть от 1 до 65535");
+            bail!("{}", tr!("порт VPN должен быть от 1 до 65535", "VPN port must be between 1 and 65535"));
         }
         if let Some(s) = &self.sni {
             if !valid_sni(s) {
-                bail!("некорректный сайт для маскировки (нужно имя вида example.com)");
+                bail!("{}", tr!("некорректный сайт для маскировки (нужно имя вида example.com)", "invalid camouflage site (a name like example.com is required)"));
             }
         }
         let p = self.profile.trim();
         if p.is_empty() || p.chars().count() > 64 || p.chars().any(char::is_control) || p.contains(['#', '?', '&', '/']) {
-            bail!("некорректное название профиля");
+            bail!("{}", tr!("некорректное название профиля", "invalid profile name"));
         }
         parse_protocols(&self.protocols)?;
         if !valid_user_name(&self.user_name) {
-            bail!("недопустимое имя пользователя (латиница, цифры, _ и -, до 32 символов)");
+            bail!("{}", tr!("недопустимое имя пользователя (латиница, цифры, _ и -, до 32 символов)", "invalid username (Latin letters, digits, _ and -, up to 32 characters)"));
         }
         Ok(())
     }
@@ -361,7 +362,7 @@ pub async fn provision(c: &SshConn, req: &ProvisionRequest, progress: Progress<'
 pub async fn set_protocols(c: &SshConn, enable: &[String], disable: &[String], cdn_host: Option<&str>, progress: Progress<'_>) -> Result<UsersView> {
     let (en, dis) = (parse_protocols(enable)?, parse_protocols(disable)?);
     if let Some(p) = en.iter().find(|p| dis.contains(p)) {
-        bail!("{} одновременно в списке включения и выключения", p.id());
+        bail!("{}", tr!(format!("{} одновременно в списке включения и выключения", p.id()), format!("{} is in both the enable and disable lists", p.id())));
     }
     let ssh = connect(c).await?;
     let mut res = users::load(&ssh).await;
@@ -434,12 +435,12 @@ pub async fn list_users(c: &SshConn) -> Result<UsersView> {
 
 pub async fn add_user(c: &SshConn, name: &str, progress: Progress<'_>) -> Result<UsersView> {
     if !valid_user_name(name) {
-        bail!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)");
+        bail!("{}", tr!(format!("недопустимое имя `{name}` (латиница, цифры, _ и -, до 32 символов)"), format!("invalid name `{name}` (Latin letters, digits, _ and -, up to 32 characters)")));
     }
     let ssh = connect(c).await?;
     let r = users::add(&ssh, name, progress).await;
     let _ = ssh.close().await;
-    let (st, _) = r.context("не удалось добавить пользователя")?;
+    let (st, _) = r.context(tr!("не удалось добавить пользователя", "failed to add the user"))?;
     Ok(users_view(&c.host, &st))
 }
 

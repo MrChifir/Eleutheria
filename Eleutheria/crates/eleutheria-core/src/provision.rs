@@ -3,6 +3,7 @@
 
 use anyhow::{bail, Context, Result};
 
+use crate::tr;
 use crate::config;
 use crate::singbox;
 use crate::ssh::Ssh;
@@ -131,7 +132,7 @@ async fn apply_config_inner(ssh: &Ssh, st: &State, report: Report<'_>, restarted
     let chk = ssh.run(&format!("{BIN} check -c /etc/sing-box/config.json.new")).await?;
     if chk.code != 0 {
         let _ = ssh.run("rm -f /etc/sing-box/config.json.new").await;
-        bail!("sing-box отклонил конфиг: {}", chk.stderr_str());
+        bail!("{}", tr!(format!("sing-box отклонил конфиг: {}", chk.stderr_str()), format!("sing-box rejected the config: {}", chk.stderr_str())));
     }
     let had_prev = ssh.run(&format!("test -f {CONFIG}")).await?.code == 0;
     if had_prev {
@@ -147,12 +148,12 @@ async fn apply_config_inner(ssh: &Ssh, st: &State, report: Report<'_>, restarted
             .await?
             .stdout_str();
         if had_prev {
-            report("Сервис не поднялся с новым конфигом, возвращаю прежний…");
+            report(tr!("Сервис не поднялся с новым конфигом, возвращаю прежний…", "The service failed to start with the new config, restoring the previous one…"));
             ssh.run_ok(&format!("mv -f {CONFIG}.bak {CONFIG}")).await?;
             ssh.run_ok(&format!("systemctl restart {UNIT_NAME}")).await?;
-            bail!("сервис не поднялся с новым конфигом, прежний конфиг восстановлен. Логи:\n{logs}");
+            bail!("{}", tr!(format!("сервис не поднялся с новым конфигом, прежний конфиг восстановлен. Логи:\n{logs}"), format!("the service failed to start with the new config, the previous config was restored. Logs:\n{logs}")));
         }
-        bail!("сервис не поднялся. Логи:\n{logs}");
+        bail!("{}", tr!(format!("сервис не поднялся. Логи:\n{logs}"), format!("the service failed to start. Logs:\n{logs}")));
     }
     ssh.upload(STATE, &serde_json::to_vec_pretty(st)?, 0o600).await?;
     Ok(())
@@ -186,8 +187,8 @@ async fn ensure_protocols(ssh: &Ssh, st: &mut State, want: &[Proto], cdn_host: O
     if new.contains(&Proto::VlessWs) {
         match cdn_host {
             Some(h) if valid_cdn_host(h) => {}
-            Some(h) => bail!("`{h}` не похоже на домен (нужно имя вроде cdn.example.com, не IP)"),
-            None => bail!("для VLESS-WS нужен домен, проксируемый CDN (--cdn-host cdn.example.com)"),
+            Some(h) => bail!("{}", tr!(format!("`{h}` не похоже на домен (нужно имя вроде cdn.example.com, не IP)"), format!("`{h}` does not look like a domain (a name like cdn.example.com is required, not an IP)"))),
+            None => bail!("{}", tr!("для VLESS-WS нужен домен, проксируемый CDN (--cdn-host cdn.example.com)", "VLESS-WS requires a domain proxied by a CDN (--cdn-host cdn.example.com)")),
         }
     }
     // профили читаются и проверяются до любых изменений на сервере
@@ -198,19 +199,19 @@ async fn ensure_protocols(ssh: &Ssh, st: &mut State, want: &[Proto], cdn_host: O
     // порты, которые займут новые профили, не должны пересекаться ни с Reality, ни с включёнными, ни друг с другом
     let mut claimed: Vec<(u16, &'static str, String)> = vec![(st.port, "tcp", "VLESS+Reality".into())];
     for (q, qs) in &st.protocols.enabled {
-        let name = profiles::get(q).map(|x| x.manifest.name.clone()).unwrap_or_else(|_| q.id().to_string());
+        let name = profiles::get(q).map(|x| x.manifest.display_name().to_string()).unwrap_or_else(|_| q.id().to_string());
         claimed.extend(transports(q, qs).iter().map(|t| (qs.port, *t, name.clone())));
     }
     for (p, prof) in new.iter().zip(&profs) {
         let port = prof.manifest.default_port;
         for t in tr(prof.manifest.transport) {
             if let Some((_, _, who)) = claimed.iter().find(|(cp, ct, _)| *cp == port && ct == t) {
-                bail!("порт {port}/{t} для {} уже занят протоколом {who} на этом сервере", prof.manifest.name);
+                bail!("{}", tr!(format!("порт {port}/{t} для {} уже занят протоколом {who} на этом сервере", prof.manifest.display_name()), format!("port {port}/{t} for {} is already used by {who} on this server", prof.manifest.display_name())));
             }
             if port_busy(ssh, port, t).await? {
-                bail!("порт {port}/{t} для {} занят: освободи его на сервере", prof.manifest.name);
+                bail!("{}", tr!(format!("порт {port}/{t} для {} занят: освободи его на сервере", prof.manifest.display_name()), format!("port {port}/{t} for {} is busy: free it on the server", prof.manifest.display_name())));
             }
-            claimed.push((port, t, prof.manifest.name.clone()));
+            claimed.push((port, t, prof.manifest.display_name().to_string()));
         }
         let _ = p;
     }
@@ -223,7 +224,7 @@ async fn ensure_protocols(ssh: &Ssh, st: &mut State, want: &[Proto], cdn_host: O
     ensure_user_secrets(ssh, st).await?;
     ssh.run_ok("mkdir -p /etc/eleutheria && chmod 700 /etc/eleutheria").await?;
     if profs.iter().any(|x| x.manifest.needs_cert) && st.protocols.tls.is_none() {
-        report("Создаю самоподписанный сертификат для QUIC-протоколов…");
+        report(tr!("Создаю самоподписанный сертификат для QUIC-протоколов…", "Creating a self-signed certificate for QUIC protocols…"));
         let c = tlscert::generate(DEFAULT_QUIC_SNI)?;
         ssh.upload(&format!("{}/key.pem", profiles::CERT_DIR), c.key_pem.as_bytes(), 0o600).await?;
         ssh.upload(&format!("{}/cert.pem", profiles::CERT_DIR), c.cert_pem.as_bytes(), 0o600).await?;
@@ -241,7 +242,7 @@ async fn ensure_protocols(ssh: &Ssh, st: &mut State, want: &[Proto], cdn_host: O
         if !p.is_builtin() {
             ps.transport = Some(prof.manifest.transport);
         }
-        report(&format!("Включаю {} на порту {}", prof.manifest.name, prof.manifest.default_port));
+        report(&tr!(format!("Включаю {} на порту {}", prof.manifest.display_name(), prof.manifest.default_port), format!("Enabling {} on port {}", prof.manifest.display_name(), prof.manifest.default_port)));
         st.protocols.enabled.insert(p.clone(), ps);
     }
     Ok(new)
@@ -271,7 +272,7 @@ async fn open_firewall(ssh: &Ssh, st: &State, report: Report<'_>) -> Result<()> 
         return Ok(());
     }
     for (port, proto) in listen_ports(st) {
-        report(&format!("ufw активен, открываю {port}/{proto}"));
+        report(&tr!(format!("ufw активен, открываю {port}/{proto}"), format!("ufw is active, opening {port}/{proto}")));
         ssh.run_ok(&format!("ufw allow {port}/{proto}")).await?;
     }
     Ok(())
@@ -280,14 +281,14 @@ async fn open_firewall(ssh: &Ssh, st: &State, report: Report<'_>) -> Result<()> 
 /// Включить протоколы на уже установленном сервере. Идемпотентно: включённые пропускаются.
 pub async fn enable_protocols(ssh: &Ssh, protos: &[Proto], cdn_host: Option<&str>, report: Report<'_>) -> Result<State> {
     let Some(mut st) = read_state(ssh).await? else {
-        bail!("на сервере нет установки Eleutheria: сначала выполни установку");
+        bail!("{}", tr!("на сервере нет установки Eleutheria: сначала выполни установку", "Eleutheria is not installed on the server: run the installation first"));
     };
     let new = ensure_protocols(ssh, &mut st, protos, cdn_host, report).await?;
     if new.is_empty() {
-        report("Эти протоколы уже включены");
+        report(tr!("Эти протоколы уже включены", "These protocols are already enabled"));
         return Ok(st);
     }
-    report("Записываю конфиг, проверяю и перезапускаю…");
+    report(tr!("Записываю конфиг, проверяю и перезапускаю…", "Writing the config, checking and restarting…"));
     apply_config(ssh, &st, report).await?;
     open_firewall(ssh, &st, report).await?;
     Ok(st)
@@ -296,14 +297,14 @@ pub async fn enable_protocols(ssh: &Ssh, protos: &[Proto], cdn_host: Option<&str
 /// Выключить протоколы. Сертификат и пароли пользователей остаются на сервере (повторное включение не меняет ключи).
 pub async fn disable_protocols(ssh: &Ssh, protos: &[Proto], report: Report<'_>) -> Result<State> {
     let Some(mut st) = read_state(ssh).await? else {
-        bail!("на сервере нет установки Eleutheria");
+        bail!("{}", tr!("на сервере нет установки Eleutheria", "Eleutheria is not installed on the server"));
     };
     let gone: Vec<(Proto, ProtoState)> = protos.iter().filter_map(|p| st.protocols.enabled.remove(p).map(|ps| (p.clone(), ps))).collect();
     if gone.is_empty() {
-        report("Эти протоколы и не были включены");
+        report(tr!("Эти протоколы и не были включены", "These protocols were not enabled"));
         return Ok(st);
     }
-    report("Записываю конфиг, проверяю и перезапускаю…");
+    report(tr!("Записываю конфиг, проверяю и перезапускаю…", "Writing the config, checking and restarting…"));
     apply_config(ssh, &st, report).await?;
     let ufw_active = ssh.run("command -v ufw >/dev/null && ufw status | grep -q '^Status: active'").await?.code == 0;
     if ufw_active {
@@ -344,11 +345,11 @@ pub fn update_need(installed: Option<&str>, bundled: &str) -> UpdateNeed {
 /// понижения версии. Ключи, порт, SNI и пользователи берутся из state.json; hardening не запускается.
 pub async fn update(ssh: &Ssh, report: Report<'_>) -> Result<State> {
     let Some(st) = read_state(ssh).await? else {
-        bail!("на сервере нет установки Eleutheria: сначала выполни установку");
+        bail!("{}", tr!("на сервере нет установки Eleutheria: сначала выполни установку", "Eleutheria is not installed on the server: run the installation first"));
     };
     match update_need(Some(&st.singbox), singbox::VERSION) {
-        UpdateNeed::Newer => bail!("на сервере sing-box {} новее, чем в этом клиенте ({}): обнови приложение", st.singbox, singbox::VERSION),
-        UpdateNeed::UpToDate => report(&format!("sing-box {} уже актуален, переписываю конфиг без смены версии", st.singbox)),
+        UpdateNeed::Newer => bail!("{}", tr!(format!("на сервере sing-box {} новее, чем в этом клиенте ({}): обнови приложение", st.singbox, singbox::VERSION), format!("the server has sing-box {}, which is newer than in this client ({}): update the app", st.singbox, singbox::VERSION))),
+        UpdateNeed::UpToDate => report(&tr!(format!("sing-box {} уже актуален, переписываю конфиг без смены версии", st.singbox), format!("sing-box {} is already up to date, rewriting the config without changing the version", st.singbox))),
         _ => {}
     }
     let opts = Options {
@@ -364,10 +365,10 @@ pub async fn update(ssh: &Ssh, report: Report<'_>) -> Result<State> {
 
 pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<Provisioned> {
     // 1. Предпроверки
-    report("Проверяю сервер…");
+    report(tr!("Проверяю сервер…", "Checking the server…"));
     let uid = ssh.run_ok("id -u").await?;
     if uid != "0" {
-        bail!("нужен root (сейчас uid={uid}). Подключись пользователем root.");
+        bail!("{}", tr!(format!("нужен root (сейчас uid={uid}). Подключись пользователем root."), format!("root is required (current uid={uid}). Connect as root.")));
     }
     let arch = singbox::arch_from_uname(&ssh.run_ok("uname -m").await?)?;
     let os = ssh
@@ -376,12 +377,12 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
         .unwrap_or_default();
     let os_id = os.split_whitespace().next().unwrap_or("");
     if !matches!(os_id, "ubuntu" | "debian") {
-        bail!("ОС `{os}` не поддерживается (нужны Ubuntu или Debian)");
+        bail!("{}", tr!(format!("ОС `{os}` не поддерживается (нужны Ubuntu или Debian)"), format!("OS `{os}` is not supported (Ubuntu or Debian required)")));
     }
     if ssh.run("test -d /run/systemd/system").await?.code != 0 {
-        bail!("на сервере нет systemd");
+        bail!("{}", tr!("на сервере нет systemd", "systemd is not available on the server"));
     }
-    report(&format!("Сервер: {os}, {arch}"));
+    report(&tr!(format!("Сервер: {os}, {arch}"), format!("Server: {os}, {arch}")));
 
     let existing = read_state(ssh).await?;
     let port = opts
@@ -398,7 +399,7 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
     let listening = ssh.run_ok(&format!("ss -ltnH 'sport = :{port}' || true")).await?;
     let ours = ssh.run(&format!("systemctl is-active --quiet {UNIT_NAME}")).await?.code == 0;
     if !listening.is_empty() && !ours {
-        bail!("порт {port}/tcp уже занят другим сервисом на сервере:\n{listening}\nОсвободи его или выбери другой порт (--port).");
+        bail!("{}", tr!(format!("порт {port}/tcp уже занят другим сервисом на сервере:\n{listening}\nОсвободи его или выбери другой порт (--port)."), format!("port {port}/tcp is already used by another service on the server:\n{listening}\nFree it or choose another port (--port).")));
     }
 
     // 3. Бинарник sing-box (скачиваем и проверяем хеш на клиенте, не на сервере).
@@ -411,15 +412,15 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
         .stdout_str();
     let installed = version::from_version_output(&installed_out);
     if installed.as_deref() == Some(singbox::VERSION) {
-        report(&format!("sing-box {} уже установлен", singbox::VERSION));
+        report(&tr!(format!("sing-box {} уже установлен", singbox::VERSION), format!("sing-box {} is already installed", singbox::VERSION)));
     } else {
-        report(&format!("Скачиваю sing-box {} и проверяю SHA256…", singbox::VERSION));
+        report(&tr!(format!("Скачиваю sing-box {} и проверяю SHA256…", singbox::VERSION), format!("Downloading sing-box {} and verifying SHA256…", singbox::VERSION)));
         let tgz = singbox::fetch_verified(arch).await?;
-        report(&format!("Загружаю на сервер ({} МБ)…", tgz.len() / 1_000_000));
+        report(&tr!(format!("Загружаю на сервер ({} МБ)…", tgz.len() / 1_000_000), format!("Uploading to the server ({} MB)…", tgz.len() / 1_000_000)));
         ssh.upload("/tmp/eleutheria-sing-box.tgz", &tgz, 0o600).await?;
         let had_bin = ssh.run(&format!("test -x {BIN}")).await?.code == 0;
         if had_bin {
-            ssh.run_ok(&format!("cp -p {BIN} {BIN_PREV}")).await.context("не удалось сохранить прежний бинарник sing-box")?;
+            ssh.run_ok(&format!("cp -p {BIN} {BIN_PREV}")).await.context(tr!("не удалось сохранить прежний бинарник sing-box", "failed to save the previous sing-box binary"))?;
         }
         let r = ssh
             .run_ok(
@@ -429,7 +430,7 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
                  rm -rf /tmp/eleutheria-sb /tmp/eleutheria-sing-box.tgz",
             )
             .await
-            .context("не удалось установить бинарник sing-box");
+            .context(tr!("не удалось установить бинарник sing-box", "failed to install the sing-box binary"));
         if let Err(e) = r {
             if had_bin {
                 let _ = ssh.run(&format!("mv -f {BIN_PREV} {BIN}")).await;
@@ -442,7 +443,7 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
     // 4. Состояние: переиспользуем ключи и пользователей или создаём новые
     let state = match existing {
         Some(mut s) => {
-            report("Нашёл прежнее состояние сервера (ключи и пользователи сохранены)");
+            report(tr!("Нашёл прежнее состояние сервера (ключи и пользователи сохранены)", "Found the server's previous state (keys and users preserved)"));
             s.port = port;
             s.sni = sni;
             s.singbox = singbox::VERSION.to_string();
@@ -450,15 +451,15 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
         }
         None => {
             if !valid_user_name(&opts.user_name) {
-                bail!("недопустимое имя пользователя `{}` (латиница, цифры, _ и -, до 32 символов)", opts.user_name);
+                bail!("{}", tr!(format!("недопустимое имя пользователя `{}` (латиница, цифры, _ и -, до 32 символов)", opts.user_name), format!("invalid user name `{}` (Latin letters, digits, _ and -, up to 32 characters)", opts.user_name)));
             }
-            report("Генерирую ключи Reality…");
+            report(tr!("Генерирую ключи Reality…", "Generating Reality keys…"));
             let kp = sb_generate(ssh, "reality-keypair").await?;
             let field = |name: &str| -> Result<String> {
                 kp.lines()
                     .find_map(|l| l.strip_prefix(name))
                     .map(|v| v.trim().to_string())
-                    .with_context(|| format!("не нашёл {name} в выводе generate reality-keypair"))
+                    .with_context(|| tr!(format!("не нашёл {name} в выводе generate reality-keypair"), format!("could not find {name} in the generate reality-keypair output")))
             };
             State {
                 version: 2,
@@ -483,23 +484,23 @@ pub async fn provision(ssh: &Ssh, opts: &Options, report: Report<'_>) -> Result<
     let fresh = ssh.run(&format!("test -f {unit_path}")).await?.code != 0;
     if fresh {
         tx.push(
-            "удалить службу sing-box",
+            tr!("удалить службу sing-box", "remove the sing-box service"),
             format!("systemctl disable --now {UNIT_NAME} >/dev/null 2>&1; rm -f {unit_path}; systemctl daemon-reload"),
         );
     }
     ssh.upload(&unit_path, UNIT.as_bytes(), 0o644).await?;
     ssh.run_ok(&format!("systemctl daemon-reload && systemctl enable {UNIT_NAME} >/dev/null 2>&1")).await?;
 
-    report("Записываю конфиг, проверяю и запускаю…");
+    report(tr!("Записываю конфиг, проверяю и запускаю…", "Writing the config, checking and starting…"));
     let (applied, restarted) = apply_config_tracked(ssh, &state, report).await;
     if let Err(e) = applied {
         // Откат идёт с конца: сначала вернуть бинарник, потом (если сервис успели перезапустить
         // с новым) перезапустить его ещё раз уже со старым. Если сервис не трогали, он продолжает работать.
         if restarted && !fresh && bin_backed_up {
-            tx.push("перезапустить sing-box со старым бинарником", format!("systemctl restart {UNIT_NAME}"));
+            tx.push(tr!("перезапустить sing-box со старым бинарником", "restart sing-box with the old binary"), format!("systemctl restart {UNIT_NAME}"));
         }
         if bin_backed_up {
-            tx.push("вернуть прежний бинарник sing-box", format!("mv -f {BIN_PREV} {BIN}"));
+            tx.push(tr!("вернуть прежний бинарник sing-box", "restore the previous sing-box binary"), format!("mv -f {BIN_PREV} {BIN}"));
         }
         tx.rollback(ssh, report).await;
         return Err(e);

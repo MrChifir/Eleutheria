@@ -11,6 +11,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::store::config_dir;
+use crate::tr;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
@@ -31,10 +32,10 @@ fn cat(id: &str, title: &str, domains: &[&str], url: &str) -> Category {
 /// Встроенный набор. Адреса проб лёгкие (страницы или `generate_204`), домены взяты по основным хостам сервиса.
 pub fn builtin() -> Vec<Category> {
     vec![
-        cat("video", "Видео", &["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com"], "https://www.youtube.com/generate_204"),
-        cat("messengers", "Мессенджеры", &["telegram.org", "t.me", "telegram.me", "web.whatsapp.com", "whatsapp.com", "whatsapp.net"], "https://telegram.org/"),
-        cat("social", "Соцсети", &["instagram.com", "cdninstagram.com", "facebook.com", "fbcdn.net", "twitter.com", "x.com", "twimg.com"], "https://www.instagram.com/"),
-        cat("ai", "ИИ-сервисы", &["openai.com", "chatgpt.com", "oaistatic.com", "anthropic.com", "claude.ai", "gemini.google.com"], "https://chatgpt.com/"),
+        cat("video", tr!("Видео", "Video"), &["youtube.com", "youtu.be", "googlevideo.com", "ytimg.com", "ggpht.com"], "https://www.youtube.com/generate_204"),
+        cat("messengers", tr!("Мессенджеры", "Messengers"), &["telegram.org", "t.me", "telegram.me", "web.whatsapp.com", "whatsapp.com", "whatsapp.net"], "https://telegram.org/"),
+        cat("social", tr!("Соцсети", "Social media"), &["instagram.com", "cdninstagram.com", "facebook.com", "fbcdn.net", "twitter.com", "x.com", "twimg.com"], "https://www.instagram.com/"),
+        cat("ai", tr!("ИИ-сервисы", "AI services"), &["openai.com", "chatgpt.com", "oaistatic.com", "anthropic.com", "claude.ai", "gemini.google.com"], "https://chatgpt.com/"),
     ]
 }
 
@@ -76,7 +77,7 @@ pub fn load() -> Vec<Category> {
 pub fn set_enabled(id: &str, enabled: bool) -> Result<()> {
     let mut o = read_overrides();
     if !merge(Overrides { disabled: BTreeSet::new(), custom: o.custom.clone() }).iter().any(|c| c.id == id) {
-        bail!("категории `{id}` нет");
+        bail!("{}", tr!(format!("категории `{id}` нет"), format!("no category `{id}`")));
     }
     if enabled {
         o.disabled.remove(id);
@@ -99,16 +100,16 @@ pub fn valid_domain(d: &str) -> bool {
 
 pub fn validate_one(c: &Category) -> Result<()> {
     if c.id.is_empty() || c.id.len() > 24 || c.id == crate::client::prober::CANARY || !c.id.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-') {
-        bail!("недопустимый id категории `{}`", c.id);
+        bail!("{}", tr!(format!("недопустимый id категории `{}`", c.id), format!("invalid category id `{}`", c.id)));
     }
     if c.domains.is_empty() || c.domains.len() > 64 {
-        bail!("категория `{}`: от 1 до 64 доменов", c.id);
+        bail!("{}", tr!(format!("категория `{}`: от 1 до 64 доменов", c.id), format!("category `{}`: 1 to 64 domains required", c.id)));
     }
     if let Some(d) = c.domains.iter().find(|d| !valid_domain(d)) {
-        bail!("категория `{}`: недопустимый домен `{d}`", c.id);
+        bail!("{}", tr!(format!("категория `{}`: недопустимый домен `{d}`", c.id), format!("category `{}`: invalid domain `{d}`", c.id)));
     }
     if !c.probe_url.starts_with("https://") || c.probe_url.len() > 512 || c.probe_url.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
-        bail!("категория `{}`: адрес пробы должен быть https:// без пробелов", c.id);
+        bail!("{}", tr!(format!("категория `{}`: адрес пробы должен быть https:// без пробелов", c.id), format!("category `{}`: probe URL must be https:// with no spaces", c.id)));
     }
     Ok(())
 }
@@ -116,13 +117,13 @@ pub fn validate_one(c: &Category) -> Result<()> {
 /// Проверка набора целиком (его присылают helper'у с правами root, поэтому проверка строгая).
 pub fn validate(cs: &[Category]) -> Result<()> {
     if cs.len() > 16 {
-        bail!("слишком много категорий (максимум 16)");
+        bail!("{}", tr!("слишком много категорий (максимум 16)", "too many categories (max 16)"));
     }
     let mut seen = BTreeSet::new();
     for c in cs {
         validate_one(c)?;
         if !seen.insert(&c.id) {
-            bail!("категория `{}` повторяется", c.id);
+            bail!("{}", tr!(format!("категория `{}` повторяется", c.id), format!("category `{}` is duplicated", c.id)));
         }
     }
     Ok(())

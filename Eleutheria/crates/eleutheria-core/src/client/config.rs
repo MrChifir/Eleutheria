@@ -8,6 +8,7 @@ use super::categories::Category;
 use super::profile::{Kind, Server};
 use super::prober::{selector_tag, ProbePort, DIRECT};
 use crate::profiles;
+use crate::tr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -96,10 +97,10 @@ fn user_part(password: &str) -> &str {
 /// Вспомогательный бывает только у ShadowTLS: основной outbound там Shadowsocks, а сам ShadowTLS идёт его `detour`.
 fn outbound(tag: &str, s: &Server, via_tag: Option<&str>, set: &ProfileSet) -> Result<Vec<Value>> {
     if s.kind == Kind::Socks5 {
-        return Ok(vec![socks_outbound(tag, s, via_tag.context("у внешнего exit нет сервера-входа")?)]);
+        return Ok(vec![socks_outbound(tag, s, via_tag.context(tr!("у внешнего exit нет сервера-входа", "external exit has no entry server"))?)]);
     }
     let mut out = match s.proto() {
-        None if s.kind == Kind::Custom => bail!("у сервера `{}` не задан сторонний профиль", s.name.chars().take(32).collect::<String>()),
+        None if s.kind == Kind::Custom => bail!("{}", tr!(format!("у сервера `{}` не задан сторонний профиль", s.name.chars().take(32).collect::<String>()), format!("server `{}` has no third-party profile set", s.name.chars().take(32).collect::<String>()))),
         None => vec![vless_outbound(tag, s)],
         Some(p) => {
             let password = s.password.clone().unwrap_or_default();
@@ -115,13 +116,20 @@ fn outbound(tag: &str, s: &Server, via_tag: Option<&str>, set: &ProfileSet) -> R
                 Some(b) => b.render_client(&vars)?,
                 None => set
                     .get(p.id())
-                    .with_context(|| format!("профиль `{}` не установлен или не передан", p.id()))?
+                    .with_context(|| tr!(format!("профиль `{}` не установлен или не передан", p.id()), format!("profile `{}` is not installed or was not provided", p.id())))?
                     .render_client(&vars)?,
             };
             profiles::into_list(rendered)
         }
     };
-    anyhow::ensure!(!out.is_empty(), "профиль сервера `{}` не дал ни одного outbound", s.name.chars().take(32).collect::<String>());
+    anyhow::ensure!(
+        !out.is_empty(),
+        "{}",
+        {
+            let n = s.name.chars().take(32).collect::<String>();
+            tr!(format!("профиль сервера `{}` не дал ни одного outbound", n), format!("the server profile `{}` produced no outbounds", n))
+        }
+    );
     if s.host.parse::<std::net::IpAddr>().is_err() {
         // имя разрешается тем outbound'ом, который к нему подключается (у ShadowTLS это не основной)
         for o in out.iter_mut().filter(|o| o.get("server").is_some()) {
@@ -165,7 +173,7 @@ pub fn build(servers: &[Server], o: &ClientOpts) -> Result<Value> {
 /// То же, но серверы со сторонними профилями собираются по шаблонам из `set` (они должны быть уже проверены).
 pub fn build_with_profiles(servers: &[Server], o: &ClientOpts, set: &ProfileSet) -> Result<Value> {
     if servers.is_empty() {
-        bail!("нет серверов: добавь командой `eleutheria import <ссылка или подписка>`");
+        bail!(tr!("нет серверов: добавь командой `eleutheria import <ссылка или подписка>`", "no servers: add some with `eleutheria import <link or subscription>`"));
     }
     super::profile::check_chains(servers)?;
     let tags: Vec<String> = (0..servers.len()).map(server_tag).collect();
@@ -188,9 +196,9 @@ pub fn build_with_profiles(servers: &[Server], o: &ClientOpts, set: &ProfileSet)
             let i = servers
                 .iter()
                 .position(|s| &s.name == name)
-                .ok_or_else(|| anyhow::anyhow!("сервера `{name}` нет в списке"))?;
+                .ok_or_else(|| anyhow::anyhow!("{}", tr!(format!("сервера `{name}` нет в списке"), format!("server `{name}` is not in the list"))))?;
             if servers[i].is_external_exit() {
-                bail!("`{name}` внешний exit: он не может быть основным сервером");
+                bail!("{}", tr!(format!("`{name}` внешний exit: он не может быть основным сервером"), format!("`{name}` is an external exit: it cannot be the primary server")));
             }
             tags[i].clone()
         }
@@ -230,7 +238,7 @@ pub fn build_with_profiles(servers: &[Server], o: &ClientOpts, set: &ProfileSet)
     // Пробные входы привязаны к своему outbound раньше любых других правил: проба должна идти именно туда
     let mut probe_rules: Vec<Value> = Vec::new();
     for p in &o.probe_ports {
-        let target = if p.tag == DIRECT || tags.contains(&p.tag) { p.tag.clone() } else { bail!("пробный порт для неизвестного outbound `{}`", p.tag) };
+        let target = if p.tag == DIRECT || tags.contains(&p.tag) { p.tag.clone() } else { bail!("{}", tr!(format!("пробный порт для неизвестного outbound `{}`", p.tag), format!("probe port for unknown outbound `{}`", p.tag))) };
         probe_rules.push(json!({ "inbound": [probe_tag(&p.tag)], "outbound": target }));
     }
     if o.ru_direct != RuDirect::Off {

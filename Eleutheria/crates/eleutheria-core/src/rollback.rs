@@ -73,26 +73,26 @@ pub fn target_for(os: &str, appimage: Option<&Path>, exe: &Path) -> Result<(Path
     match os {
         "linux" => match appimage {
             Some(p) => Ok((p.to_path_buf(), Kind::File, p.to_path_buf())),
-            None => Err("откат поддерживается только для AppImage".into()),
+            None => Err(crate::tr!("откат поддерживается только для AppImage", "rollback is only supported for AppImage").into()),
         },
         "macos" => {
             let app = exe
                 .ancestors()
                 .find(|a| a.extension().is_some_and(|e| e == "app"))
-                .ok_or("не нашёл каталог .app рядом с исполняемым файлом")?;
+                .ok_or(crate::tr!("не нашёл каталог .app рядом с исполняемым файлом", "could not find the .app directory next to the executable"))?;
             Ok((app.to_path_buf(), Kind::Dir, exe.to_path_buf()))
         }
         "windows" => {
-            let dir = exe.parent().ok_or("не определён каталог установки")?;
+            let dir = exe.parent().ok_or(crate::tr!("не определён каталог установки", "installation directory is unknown"))?;
             Ok((dir.to_path_buf(), Kind::Dir, exe.to_path_buf()))
         }
-        other => Err(format!("откат не поддерживается на этой ОС ({other})")),
+        other => Err(crate::tr!(format!("откат не поддерживается на этой ОС ({other})"), format!("rollback is not supported on this OS ({other})"))),
     }
 }
 
 /// Рекурсивная копия с сохранением ссылок (важно для `.app` на macOS) и прав.
 pub fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
-    let meta = fs::symlink_metadata(src).with_context(|| format!("нет {}", src.display()))?;
+    let meta = fs::symlink_metadata(src).with_context(|| crate::tr!(format!("нет {}", src.display()), format!("{} does not exist", src.display())))?;
     if meta.file_type().is_symlink() {
         #[cfg(unix)]
         {
@@ -114,7 +114,7 @@ pub fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
         }
         return Ok(());
     }
-    fs::copy(src, dst).with_context(|| format!("копирование {}", src.display()))?;
+    fs::copy(src, dst).with_context(|| crate::tr!(format!("копирование {}", src.display()), format!("copying {}", src.display())))?;
     Ok(())
 }
 
@@ -143,7 +143,7 @@ fn write_json_atomic<T: Serialize>(path: &Path, v: &T) -> Result<()> {
 /// Сделать копию текущей установки и записать маркер. Вызывается ДО установки обновления.
 pub fn prepare(dir: &Path, from: &str, to: &str, target: &Path, kind: Kind, relaunch: &Path, now: u64, timeout: u64) -> Result<Pending> {
     if !target.exists() {
-        bail!("нечего сохранять: {} не существует", target.display());
+        bail!("{}", crate::tr!(format!("нечего сохранять: {} не существует", target.display()), format!("nothing to save: {} does not exist", target.display())));
     }
     let root = rollback_dir(dir);
     let backup = root.join("backup");
@@ -152,7 +152,7 @@ pub fn prepare(dir: &Path, from: &str, to: &str, target: &Path, kind: Kind, rela
     // копия сначала во временное имя: недокопированный бэкап не должен выглядеть пригодным
     let part = root.join("backup.part");
     remove_any(&part);
-    copy_tree(target, &part).context("не удалось сохранить прежнюю версию")?;
+    copy_tree(target, &part).context(crate::tr!("не удалось сохранить прежнюю версию", "failed to save the previous version"))?;
     fs::rename(&part, &backup)?;
     let p = Pending {
         from_version: from.into(),
@@ -196,17 +196,17 @@ pub fn confirm(dir: &Path, running_version: &str) -> Confirm {
 /// Проверка, что маркер не заставит сторожа тронуть чужие пути: копия обязана лежать в нашем каталоге.
 fn validate(dir: &Path, p: &Pending) -> Result<()> {
     if p.backup != rollback_dir(dir).join("backup") {
-        bail!("копия лежит не в каталоге отката: {}", p.backup.display());
+        bail!("{}", crate::tr!(format!("копия лежит не в каталоге отката: {}", p.backup.display()), format!("the backup is not in the rollback directory: {}", p.backup.display())));
     }
     if p.target.parent().is_none() {
-        bail!("цель отката не может быть корнем");
+        bail!("{}", crate::tr!("цель отката не может быть корнем", "the rollback target cannot be the root"));
     }
     let ok = match p.kind {
         Kind::File => p.backup.is_file(),
         Kind::Dir => p.backup.is_dir(),
     };
     if !ok {
-        bail!("копии прежней версии нет или она не того типа");
+        bail!("{}", crate::tr!("копии прежней версии нет или она не того типа", "the previous version backup is missing or of the wrong type"));
     }
     Ok(())
 }
@@ -218,13 +218,13 @@ pub fn restore(p: &Pending) -> Result<()> {
     let failed = p.target.with_file_name(format!("{name}.failed"));
     remove_any(&failed);
     if p.target.exists() {
-        fs::rename(&p.target, &failed).with_context(|| format!("не удалось убрать новую версию {}", p.target.display()))?;
+        fs::rename(&p.target, &failed).with_context(|| crate::tr!(format!("не удалось убрать новую версию {}", p.target.display()), format!("failed to remove the new version {}", p.target.display())))?;
     }
     if let Err(e) = copy_tree(&p.backup, &p.target) {
         // вернуть всё как было, чтобы не остаться совсем без приложения
         remove_any(&p.target);
         let _ = fs::rename(&failed, &p.target);
-        return Err(e.context("не удалось восстановить прежнюю версию"));
+        return Err(e.context(crate::tr!("не удалось восстановить прежнюю версию", "failed to restore the previous version")));
     }
     remove_any(&failed);
     Ok(())
@@ -293,7 +293,7 @@ pub fn spawn_watchdog(dir: &Path, cli: &Path) -> Result<()> {
     fs::create_dir_all(&root)?;
     let copy = root.join(format!("watchdog{}", std::env::consts::EXE_SUFFIX));
     remove_any(&copy);
-    fs::copy(cli, &copy).with_context(|| format!("не удалось скопировать {}", cli.display()))?;
+    fs::copy(cli, &copy).with_context(|| crate::tr!(format!("не удалось скопировать {}", cli.display()), format!("failed to copy {}", cli.display())))?;
     let mut cmd = std::process::Command::new(&copy);
     cmd.arg("update-watchdog")
         .env("ELEUTHERIA_CONFIG_DIR", dir)
@@ -310,7 +310,7 @@ pub fn spawn_watchdog(dir: &Path, cli: &Path) -> Result<()> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0008 | 0x0000_0200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
     }
-    cmd.spawn().context("не удалось запустить сторожа отката")?;
+    cmd.spawn().context(crate::tr!("не удалось запустить сторожа отката", "failed to start the rollback watchdog"))?;
     Ok(())
 }
 
@@ -323,7 +323,7 @@ pub fn relaunch(p: &Pending) -> Result<()> {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-    cmd.spawn().with_context(|| format!("не удалось запустить {}", p.relaunch.display()))?;
+    cmd.spawn().with_context(|| crate::tr!(format!("не удалось запустить {}", p.relaunch.display()), format!("failed to launch {}", p.relaunch.display())))?;
     Ok(())
 }
 

@@ -40,7 +40,8 @@ function enhance(native) {
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
   const label = native.closest ? wrap.closest('label') : null;
-  if (label && label.firstChild && label.firstChild.nodeType === 3) trigger.setAttribute('aria-label', label.firstChild.textContent.trim());
+  const labelNode = label && label.firstElementChild && label.firstElementChild.tagName === 'SPAN' ? label.firstElementChild : label && label.firstChild;
+  if (labelNode && (labelNode.nodeType === 3 || labelNode.nodeType === 1)) trigger.setAttribute('aria-label', labelNode.textContent.trim());
   const text = document.createElement('span');
   text.className = 'sel-text';
   trigger.append(text, chevron());

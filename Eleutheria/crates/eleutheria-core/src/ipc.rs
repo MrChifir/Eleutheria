@@ -91,10 +91,10 @@ async fn read_line<R: AsyncBufReadExt + Unpin>(r: &mut R) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     let n = r.take(MAX_LINE as u64 + 1).read_until(b'\n', &mut buf).await?;
     if n == 0 {
-        bail!("соединение закрыто без данных");
+        bail!("{}", crate::tr!("соединение закрыто без данных", "connection closed without data"));
     }
     if buf.len() > MAX_LINE {
-        bail!("запрос слишком большой");
+        bail!("{}", crate::tr!("запрос слишком большой", "request too large"));
     }
     Ok(buf)
 }
@@ -111,15 +111,15 @@ async fn write_line<W: AsyncWrite + Unpin, T: Serialize>(s: &mut W, v: &T) -> Re
 pub async fn request(sock: &Path, req: &Request) -> Result<Response> {
     let mut s = tokio::time::timeout(Duration::from_secs(3), connect(sock))
         .await
-        .context("helper не отвечает (таймаут подключения)")?
-        .with_context(|| format!("не удалось подключиться к helper ({})", sock.display()))?;
+        .context(crate::tr!("helper не отвечает (таймаут подключения)", "helper is not responding (connection timed out)"))?
+        .with_context(|| crate::tr!(format!("не удалось подключиться к helper ({})", sock.display()), format!("failed to connect to the helper ({})", sock.display())))?;
     // Если запись не удалась, сервер мог уже ответить отказом и закрыть соединение: прочитаем его ответ.
     let write_err = write_line(&mut s, req).await.err();
     let mut r = BufReader::new(&mut s);
     match tokio::time::timeout(Duration::from_secs(60), read_line(&mut r)).await {
-        Ok(Ok(line)) => serde_json::from_slice(&line).context("некорректный ответ helper'а"),
+        Ok(Ok(line)) => serde_json::from_slice(&line).context(crate::tr!("некорректный ответ helper'а", "invalid response from the helper")),
         Ok(Err(e)) => Err(write_err.unwrap_or(e)),
-        Err(_) => Err(write_err.unwrap_or_else(|| anyhow::anyhow!("helper не ответил вовремя"))),
+        Err(_) => Err(write_err.unwrap_or_else(|| anyhow::anyhow!(crate::tr!("helper не ответил вовремя", "the helper did not respond in time")))),
     }
 }
 
@@ -149,16 +149,16 @@ where
     Fut: Future<Output = Response> + Send + 'static,
 {
     let resp = if !allowed {
-        Response::Error { message: "доступ запрещён".into() }
+        Response::Error { message: crate::tr!("доступ запрещён", "access denied").into() }
     } else {
         let mut r = BufReader::new(&mut stream);
         match tokio::time::timeout(Duration::from_secs(10), read_line(&mut r)).await {
             Ok(Ok(line)) => match serde_json::from_slice::<Request>(&line) {
                 Ok(req) => h(req).await,
-                Err(_) => Response::Error { message: "некорректный запрос".into() },
+                Err(_) => Response::Error { message: crate::tr!("некорректный запрос", "invalid request").into() },
             },
             Ok(Err(e)) => Response::Error { message: format!("{e:#}") },
-            Err(_) => Response::Error { message: "таймаут чтения запроса".into() },
+            Err(_) => Response::Error { message: crate::tr!("таймаут чтения запроса", "request read timed out").into() },
         }
     };
     let _ = write_line(&mut stream, &resp).await;
@@ -217,7 +217,7 @@ impl SecurityDescriptor {
         let mut sd: *mut std::ffi::c_void = std::ptr::null_mut();
         let ok = unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(wide.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) };
         if ok == 0 || sd.is_null() {
-            bail!("не удалось разобрать SDDL: {}", std::io::Error::last_os_error());
+            bail!("{}", crate::tr!(format!("не удалось разобрать SDDL: {}", std::io::Error::last_os_error()), format!("failed to parse SDDL: {}", std::io::Error::last_os_error())));
         }
         Ok(Self(sd))
     }
@@ -257,7 +257,7 @@ where
     };
 
     let handler = Arc::new(handler);
-    let mut server = make(true).with_context(|| format!("не удалось создать pipe {name}"))?;
+    let mut server = make(true).with_context(|| crate::tr!(format!("не удалось создать pipe {name}"), format!("failed to create pipe {name}")))?;
     loop {
         server.connect().await?;
         let connected = std::mem::replace(&mut server, make(false)?); // следующий экземпляр готов до обработки текущего

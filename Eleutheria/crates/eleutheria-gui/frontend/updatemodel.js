@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Чистая модель обновлений (приложение, helper, сервер): тексты и решения без DOM. Тестируется через `node --test`.
 
 /** Сравнение версий вида 1.14.3 / v1.14.3 / 1.13.0-rc.3. Возвращает -1, 0, 1 или null, если это не версия. */
@@ -36,14 +37,14 @@ export function updateView(outcome) {
   if (!outcome) return { text: '', canInstall: false };
   switch (outcome.kind) {
     case 'disabled':
-      return { text: 'Обновления из приложения выключены: в этой сборке не задан ключ подписи.', canInstall: false };
+      return { text: t('upd.disabled'), canInstall: false };
     case 'unsupported':
       return { text: outcome.reason, canInstall: false };
     case 'upToDate':
-      return { text: 'Установлена последняя версия.', canInstall: false };
+      return { text: t('upd.upToDate'), canInstall: false };
     case 'available': {
       const i = outcome.info;
-      return { text: `Доступна версия ${i.version} (сейчас ${i.current})${i.date ? `, от ${i.date}` : ''}.`, canInstall: true };
+      return { text: t('upd.available', { v: i.version, cur: i.current, date: i.date ? t('upd.availableDate', { date: i.date }) : '' }), canInstall: true };
     }
     default:
       return { text: '', canInstall: false };
@@ -61,23 +62,23 @@ export function serverUpdateView(dto) {
   if (!dto) return { text: '', canUpdate: false };
   switch (dto.status) {
     case 'upToDate':
-      return { text: `Серверная часть актуальна (sing-box ${dto.installed}).`, canUpdate: false };
+      return { text: t('upd.srv.upToDate', dto), canUpdate: false };
     case 'outdated':
-      return { text: `На сервере sing-box ${dto.installed}, в приложении ${dto.bundled}. Сервер можно обновить.`, canUpdate: true };
+      return { text: t('upd.srv.outdated', dto), canUpdate: true };
     case 'newer':
-      return { text: `На сервере sing-box ${dto.installed} новее, чем в приложении (${dto.bundled}): сначала обнови приложение.`, canUpdate: false };
+      return { text: t('upd.srv.newer', dto), canUpdate: false };
     case 'notInstalled':
-      return { text: 'На сервере нет установки Eleutheria: сначала выполни установку.', canUpdate: false };
+      return { text: t('upd.srv.notInstalled'), canUpdate: false };
     default:
-      return { text: 'Не удалось определить версию sing-box на сервере.', canUpdate: false };
+      return { text: t('upd.srv.unknown'), canUpdate: false };
   }
 }
 
 /** Сообщение при запуске: откат важнее подтверждения; null, если сообщать нечего. */
 export function startReportMessage(r) {
   if (!r) return null;
-  if (r.rolledBackFrom) return { text: `Обновление до ${r.rolledBackFrom} не запустилось, вернули прежнюю версию. Подробности и новая попытка: на вкладке обновлений.`, isErr: true };
-  if (r.updatedTo) return { text: `Приложение обновлено до версии ${r.updatedTo}.`, isErr: false };
+  if (r.rolledBackFrom) return { text: t('upd.rolledBack', { v: r.rolledBackFrom }), isErr: true };
+  if (r.updatedTo) return { text: t('upd.updatedTo', { v: r.updatedTo }), isErr: false };
   return null;
 }
 

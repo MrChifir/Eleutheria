@@ -2,6 +2,7 @@ schema: 1
 id: anytls
 name: AnyTLS
 description: "TCP + TLS с переиспользованием соединений и случайным добиванием пакетов против анализа длин. Самоподписанный сертификат, клиент закрепляет ключ."
+description_en: "TCP + TLS with connection reuse and random packet padding against length analysis. Self-signed certificate, the client pins the key."
 transport: tcp
 default_port: 4443
 needs_cert: true

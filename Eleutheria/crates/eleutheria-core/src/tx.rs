@@ -25,11 +25,11 @@ impl Tx {
 
     pub async fn rollback(&mut self, ssh: &Ssh, report: Report<'_>) {
         while let Some((label, cmd)) = self.undo.pop() {
-            report(&format!("Откат: {label}"));
+            report(&crate::tr!(format!("Откат: {label}"), format!("Rollback: {label}")));
             match ssh.run(&cmd).await {
                 Ok(o) if o.code == 0 => {}
-                Ok(o) => report(&format!("  откат «{label}» завершился с кодом {}: {}", o.code, o.stderr_str())),
-                Err(e) => report(&format!("  не удалось откатить «{label}»: {e:#}")),
+                Ok(o) => report(&crate::tr!(format!("  откат «{label}» завершился с кодом {}: {}", o.code, o.stderr_str()), format!("  rollback \"{label}\" exited with code {}: {}", o.code, o.stderr_str()))),
+                Err(e) => report(&crate::tr!(format!("  не удалось откатить «{label}»: {e:#}"), format!("  failed to roll back \"{label}\": {e:#}"))),
             }
         }
     }

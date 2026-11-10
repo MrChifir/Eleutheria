@@ -110,7 +110,7 @@ pub fn write_secret_file(path: &Path, data: &[u8]) -> Result<()> {
         opts.mode(0o600);
     }
     opts.open(path)
-        .with_context(|| format!("не удалось записать {}", path.display()))?
+        .with_context(|| crate::tr!(format!("не удалось записать {}", path.display()), format!("failed to write {}", path.display())))?
         .write_all(data)?;
     Ok(())
 }
@@ -132,7 +132,7 @@ fn key_secret_name(host: &str) -> String {
 }
 
 fn parse_key(pem: &str) -> Result<SshKey> {
-    let key = decode_secret_key(pem, None).context("сохранённый SSH-ключ повреждён")?;
+    let key = decode_secret_key(pem, None).context(crate::tr!("сохранённый SSH-ключ повреждён", "the saved SSH key is corrupted"))?;
     Ok(SshKey { pem: pem.to_string(), public: key.public_key().to_openssh()? })
 }
 
@@ -149,20 +149,20 @@ pub fn has_key(host: &str) -> Result<bool> {
 fn saved_key_in(dir: &Path, store: &dyn SecretStore, host: &str) -> Result<Option<SshKey>> {
     let name = key_secret_name(host);
     if let Some(raw) = store.get(&name)? {
-        return parse_key(&String::from_utf8(raw).context("сохранённый SSH-ключ повреждён")?).map(Some);
+        return parse_key(&String::from_utf8(raw).context(crate::tr!("сохранённый SSH-ключ повреждён", "the saved SSH key is corrupted"))?).map(Some);
     }
     let legacy = legacy_key_path_in(dir, host);
     if !legacy.exists() {
         return Ok(None);
     }
-    let pem = fs::read_to_string(&legacy).with_context(|| format!("не удалось прочитать {}", legacy.display()))?;
+    let pem = fs::read_to_string(&legacy).with_context(|| crate::tr!(format!("не удалось прочитать {}", legacy.display()), format!("failed to read {}", legacy.display())))?;
     let key = parse_key(&pem)?;
     store.set(&name, pem.as_bytes())?;
     if store.get(&name)?.as_deref() != Some(pem.as_bytes()) {
-        bail!("перенос SSH-ключа в {}: проверка записи не прошла, старый файл не тронут", store.kind());
+        bail!("{}", crate::tr!(format!("перенос SSH-ключа в {}: проверка записи не прошла, старый файл не тронут", store.kind()), format!("moving the SSH key to {}: write verification failed, old file left untouched", store.kind())));
     }
     if let Err(e) = fs::remove_file(&legacy) {
-        eprintln!("Предупреждение: ключ перенесён, но удалить {} не удалось: {e}. Удали файл вручную.", legacy.display());
+        eprintln!("{}", crate::tr!(format!("Предупреждение: ключ перенесён, но удалить {} не удалось: {e}. Удали файл вручную.", legacy.display()), format!("Warning: the key was moved, but {} could not be deleted: {e}. Delete the file manually.", legacy.display())));
     }
     Ok(Some(key))
 }

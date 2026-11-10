@@ -30,7 +30,7 @@ pub trait SecretStore: Send + Sync {
 pub struct KeyringStore;
 
 fn entry(key: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, key).map_err(|e| anyhow!("keyring недоступен: {e}"))
+    keyring::Entry::new(SERVICE, key).map_err(|e| anyhow!(crate::tr!(format!("keyring недоступен: {e}"), format!("keyring unavailable: {e}"))))
 }
 
 impl SecretStore for KeyringStore {
@@ -38,24 +38,24 @@ impl SecretStore for KeyringStore {
         match entry(key)?.get_secret() {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(anyhow!("keyring: не удалось прочитать `{key}`: {e}")),
+            Err(e) => Err(anyhow!(crate::tr!(format!("keyring: не удалось прочитать `{key}`: {e}"), format!("keyring: failed to read `{key}`: {e}")))),
         }
     }
 
     fn set(&self, key: &str, value: &[u8]) -> Result<()> {
-        entry(key)?.set_secret(value).map_err(|e| anyhow!("keyring: не удалось записать `{key}`: {e}"))
+        entry(key)?.set_secret(value).map_err(|e| anyhow!(crate::tr!(format!("keyring: не удалось записать `{key}`: {e}"), format!("keyring: failed to write `{key}`: {e}"))))
     }
 
     fn delete(&self, key: &str) -> Result<bool> {
         match entry(key)?.delete_credential() {
             Ok(()) => Ok(true),
             Err(keyring::Error::NoEntry) => Ok(false),
-            Err(e) => Err(anyhow!("keyring: не удалось удалить `{key}`: {e}")),
+            Err(e) => Err(anyhow!(crate::tr!(format!("keyring: не удалось удалить `{key}`: {e}"), format!("keyring: failed to delete `{key}`: {e}")))),
         }
     }
 
     fn kind(&self) -> &'static str {
-        "системное хранилище (keyring)"
+        crate::tr!("системное хранилище (keyring)", "system storage (keyring)")
     }
 }
 
@@ -81,7 +81,7 @@ impl SecretStore for FileStore {
         match fs::read(self.path(key)) {
             Ok(v) => Ok(Some(v)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e).with_context(|| format!("не удалось прочитать секрет `{key}`")),
+            Err(e) => Err(e).with_context(|| crate::tr!(format!("не удалось прочитать секрет `{key}`"), format!("failed to read secret `{key}`"))),
         }
     }
 
@@ -101,12 +101,12 @@ impl SecretStore for FileStore {
         match fs::remove_file(self.path(key)) {
             Ok(()) => Ok(true),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(e) => Err(e).with_context(|| format!("не удалось удалить секрет `{key}`")),
+            Err(e) => Err(e).with_context(|| crate::tr!(format!("не удалось удалить секрет `{key}`"), format!("failed to delete secret `{key}`"))),
         }
     }
 
     fn kind(&self) -> &'static str {
-        "файл с правами 600 (системный keyring недоступен)"
+        crate::tr!("файл с правами 600 (системный keyring недоступен)", "file with 600 permissions (system keyring unavailable)")
     }
 }
 
@@ -158,7 +158,7 @@ fn keyring_probe() -> Result<()> {
     let back = k.get(&key)?;
     let _ = k.delete(&key);
     if back.as_deref() != Some(b"ok".as_slice()) {
-        bail!("keyring принял запись, но вернул другое значение");
+        bail!("{}", crate::tr!("keyring принял запись, но вернул другое значение", "keyring accepted the write but returned a different value"));
     }
     Ok(())
 }
@@ -167,17 +167,17 @@ fn choose(mode: Option<&str>, probe: impl FnOnce() -> Result<()>, file_dir: Path
     match mode {
         Some("file") => Ok(Box::new(FileStore::new(file_dir))),
         Some("keyring") => {
-            probe().context("ELEUTHERIA_SECRETS=keyring, но keyring не работает")?;
+            probe().context(crate::tr!("ELEUTHERIA_SECRETS=keyring, но keyring не работает", "ELEUTHERIA_SECRETS=keyring, but keyring is not working"))?;
             Ok(Box::new(KeyringStore))
         }
         None | Some("") | Some("auto") => match probe() {
             Ok(()) => Ok(Box::new(KeyringStore)),
             Err(e) => {
-                eprintln!("Предупреждение: системный keyring недоступен ({e:#}). Секреты будут храниться в файлах с правами 600.");
+                eprintln!("{}", crate::tr!(format!("Предупреждение: системный keyring недоступен ({e:#}). Секреты будут храниться в файлах с правами 600."), format!("Warning: system keyring unavailable ({e:#}). Secrets will be stored in files with 600 permissions.")));
                 Ok(Box::new(FileStore::new(file_dir)))
             }
         },
-        Some(other) => bail!("ELEUTHERIA_SECRETS={other}: допустимо keyring, file или auto"),
+        Some(other) => bail!("{}", crate::tr!(format!("ELEUTHERIA_SECRETS={other}: допустимо keyring, file или auto"), format!("ELEUTHERIA_SECRETS={other}: expected keyring, file or auto"))),
     }
 }
 

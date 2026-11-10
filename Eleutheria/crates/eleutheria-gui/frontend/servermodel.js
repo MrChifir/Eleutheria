@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Чистая модель мастера «Сервер»: проверки, сборка запросов, тексты. Тестируется через `node --test`.
 
 /** Как показать результат проверки ключа сервера. */
@@ -5,17 +6,17 @@ export function hostKeyView(probe) {
   if (!probe) return null;
   const k = probe.status.kind;
   if (k === 'known') {
-    return { tone: 'ok', needsConfirm: false, blocked: false, text: 'Ключ сервера совпадает с сохранённым.' };
+    return { tone: 'ok', needsConfirm: false, blocked: false, text: t('hk.known') };
   }
   if (k === 'unknown') {
     return {
       tone: 'warn', needsConfirm: true, blocked: false,
-      text: `Новый сервер. Fingerprint: ${probe.fingerprint}. Сверь его с данными хостера (панель, консоль) и подтверди.`,
+      text: t('hk.unknown', { fp: probe.fingerprint }),
     };
   }
   return {
     tone: 'bad', needsConfirm: false, blocked: true,
-    text: `Ключ сервера изменился (было ${probe.status.previous}, сейчас ${probe.fingerprint}). Это переустановка сервера или перехват соединения. Если сервер переустанавливал ты, выполни \`eleutheria forget <адрес>\` и повтори.`,
+    text: t('hk.changed', { prev: probe.status.previous, fp: probe.fingerprint }),
   };
 }
 
@@ -63,7 +64,7 @@ export function parsePort(text) {
 
 export function buildProvisionRequest(o) {
   const port = parsePort(o.port);
-  if (!port.ok) throw new Error('Порт VPN: число от 1 до 65535');
+  if (!port.ok) throw new Error(t('err.vpnPort'));
   return {
     port: port.value,
     sni: o.sni && o.sni.trim() ? o.sni.trim() : null,
@@ -78,13 +79,9 @@ export function buildProvisionRequest(o) {
 
 /** Дополнительные протоколы сервера (VLESS+Reality есть всегда). id совпадают с ядром. */
 export const PROTOCOLS = [
-  { id: 'hysteria2', label: 'Hysteria2', hint: 'QUIC (UDP), быстрый на каналах с потерями' },
-  { id: 'tuic', label: 'TUIC v5', hint: 'QUIC (UDP), другой отпечаток' },
-  { id: 'ss2022', label: 'Shadowsocks 2022', hint: 'TCP и UDP, без сертификатов' },
-  { id: 'trojan', label: 'Trojan', hint: 'TCP + TLS, самоподписанный сертификат' },
-  { id: 'anytls', label: 'AnyTLS', hint: 'TCP + TLS с добиванием пакетов' },
-  { id: 'shadowtls', label: 'ShadowTLS v3', hint: 'настоящее TLS-рукопожатие, только в клиенте Eleutheria' },
-];
+  ['hysteria2', 'Hysteria2'], ['tuic', 'TUIC v5'], ['ss2022', 'Shadowsocks 2022'],
+  ['trojan', 'Trojan'], ['anytls', 'AnyTLS'], ['shadowtls', 'ShadowTLS v3'],
+].map(([id, label]) => ({ id, label, get hint() { return t(`proto.hint.${id}`); } }));
 
 export function protoLabel(id) {
   if (id === 'vless') return 'VLESS+Reality';

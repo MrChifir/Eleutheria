@@ -2,6 +2,7 @@ schema: 1
 id: shadowtls
 name: ShadowTLS v3
 description: "Настоящее TLS-рукопожатие с сайтом-маскировкой (тем же, что у Reality), внутри Shadowsocks 2022. Сертификаты не нужны. Ссылки нет: работает только в клиенте Eleutheria."
+description_en: "A real TLS handshake with a camouflage site (the same one Reality uses), with Shadowsocks 2022 inside. No certificates needed. No share link: works only in the Eleutheria client."
 transport: tcp
 default_port: 9443
 needs_cert: false

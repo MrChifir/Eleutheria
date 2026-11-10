@@ -69,34 +69,34 @@ fn plist() -> String {
 
 fn copy_exe(src: &Path, dst: &Path) -> Result<()> {
     let tmp = dst.with_extension("part");
-    fs::copy(src, &tmp).with_context(|| format!("не удалось скопировать {} в {}", src.display(), tmp.display()))?;
+    fs::copy(src, &tmp).with_context(|| crate::tr!(format!("не удалось скопировать {} в {}", src.display(), tmp.display()), format!("failed to copy {} to {}", src.display(), tmp.display())))?;
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
     fs::rename(&tmp, dst)?;
     Ok(())
 }
 
 fn run(cmd: &str, args: &[&str]) -> Result<()> {
-    let st = Command::new(cmd).args(args).status().with_context(|| format!("не удалось запустить {cmd}"))?;
+    let st = Command::new(cmd).args(args).status().with_context(|| crate::tr!(format!("не удалось запустить {cmd}"), format!("failed to run {cmd}")))?;
     if !st.success() {
-        bail!("`{cmd} {}` завершилась с ошибкой", args.join(" "));
+        bail!("{}", crate::tr!(format!("`{cmd} {}` завершилась с ошибкой", args.join(" ")), format!("`{cmd} {}` failed", args.join(" "))));
     }
     Ok(())
 }
 
 pub async fn install(allowed_uid: u32, helper_src: &Path, report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     if current_uid() != Some(0) {
-        bail!("нужны права root: запусти `sudo eleutheria helper install`");
+        bail!("{}", crate::tr!("нужны права root: запусти `sudo eleutheria helper install`", "root privileges required: run `sudo eleutheria helper install`"));
     }
     if !helper_src.exists() {
-        bail!("не найден бинарник helper'а {} (он должен лежать рядом с eleutheria)", helper_src.display());
+        bail!("{}", crate::tr!(format!("не найден бинарник helper'а {} (он должен лежать рядом с eleutheria)", helper_src.display()), format!("helper binary {} not found (it must be next to eleutheria)", helper_src.display())));
     }
-    report("Готовлю sing-box (проверка SHA256)…");
+    report(crate::tr!("Готовлю sing-box (проверка SHA256)…", "Preparing sing-box (SHA256 check)…"));
     let sb = singbox::ensure_local_binary().await?;
 
     let lib = lib_dir();
     fs::create_dir_all(&lib)?;
     fs::set_permissions(&lib, fs::Permissions::from_mode(0o755))?;
-    report(&format!("Копирую файлы в {}", lib.display()));
+    report(&crate::tr!(format!("Копирую файлы в {}", lib.display()), format!("Copying files to {}", lib.display())));
     copy_exe(&sb, &lib.join("sing-box"))?;
     copy_exe(helper_src, &lib.join("eleutheria-helper"))?;
 
@@ -120,13 +120,13 @@ pub async fn install(allowed_uid: u32, helper_src: &Path, report: &(dyn Fn(&str)
         run("systemctl", &["enable", "eleutheria-helper"])?;
         run("systemctl", &["restart", "eleutheria-helper"])?;
     }
-    report(&format!("Служба установлена; доступ только для uid {allowed_uid} и root"));
+    report(&crate::tr!(format!("Служба установлена; доступ только для uid {allowed_uid} и root"), format!("Service installed; access only for uid {allowed_uid} and root")));
     Ok(())
 }
 
 pub fn uninstall(report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     if current_uid() != Some(0) {
-        bail!("нужны права root: запусти `sudo eleutheria helper uninstall`");
+        bail!("{}", crate::tr!("нужны права root: запусти `sudo eleutheria helper uninstall`", "root privileges required: run `sudo eleutheria helper uninstall`"));
     }
     if cfg!(target_os = "macos") {
         let _ = run("launchctl", &["bootout", "system", PLIST_PATH]);
@@ -142,6 +142,6 @@ pub fn uninstall(report: &(dyn Fn(&str) + Sync)) -> Result<()> {
     let _ = fs::remove_dir(lib_dir());
     let _ = fs::remove_file(CONFIG_PATH);
     let _ = fs::remove_file(ipc::default_socket_path());
-    report("Служба и файлы удалены");
+    report(crate::tr!("Служба и файлы удалены", "Service and files removed"));
     Ok(())
 }

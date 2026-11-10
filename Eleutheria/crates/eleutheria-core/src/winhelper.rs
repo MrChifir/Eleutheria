@@ -35,7 +35,7 @@ pub fn is_valid_sid(s: &str) -> bool {
 /// чтение/запись установившему пользователю. Остальные локальные пользователи не смогут открыть pipe.
 pub fn pipe_sddl(user_sid: &str) -> Result<String> {
     if !is_valid_sid(user_sid) {
-        bail!("некорректный SID `{}`", user_sid.chars().take(64).collect::<String>());
+        bail!("{}", crate::tr!(format!("некорректный SID `{}`", user_sid.chars().take(64).collect::<String>()), format!("invalid SID `{}`", user_sid.chars().take(64).collect::<String>())));
     }
     Ok(format!("D:P(D;;GA;;;NU)(A;;GA;;;{SID_SYSTEM})(A;;GA;;;{SID_ADMINS})(A;;GRGW;;;{user_sid})"))
 }
@@ -45,7 +45,7 @@ pub fn parse_whoami_sid(out: &str) -> Result<String> {
     let line = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
     let last = line.rsplit(',').next().unwrap_or("").trim().trim_matches('"');
     if !is_valid_sid(last) {
-        bail!("не удалось определить SID пользователя из вывода whoami: `{}`", line.chars().take(120).collect::<String>());
+        bail!("{}", crate::tr!(format!("не удалось определить SID пользователя из вывода whoami: `{}`", line.chars().take(120).collect::<String>()), format!("could not determine the user SID from whoami output: `{}`", line.chars().take(120).collect::<String>())));
     }
     Ok(last.to_string())
 }

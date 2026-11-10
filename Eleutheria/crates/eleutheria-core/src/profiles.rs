@@ -24,6 +24,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
+use crate::tr;
 use crate::state::{Proto, ProtoState, State};
 
 #[derive(Clone, Copy, Debug, serde::Serialize, Deserialize, PartialEq, Eq)]
@@ -51,8 +52,14 @@ pub struct Manifest {
     pub schema: u32,
     pub id: String,
     pub name: String,
+    /// английское название (необязательно; для пользовательских профилей без него показывается `name`)
+    #[serde(default)]
+    pub name_en: Option<String>,
     #[serde(default)]
     pub description: String,
+    /// английское описание (необязательно)
+    #[serde(default)]
+    pub description_en: Option<String>,
     pub transport: Transport,
     pub default_port: u16,
     /// нужен ли сертификат (файлы на сервере и закрепление ключа в клиенте)
@@ -66,6 +73,24 @@ pub struct Manifest {
     /// константы профиля, доступны в шаблонах как `param.<имя>`
     #[serde(default)]
     pub params: BTreeMap<String, String>,
+}
+
+impl Manifest {
+    /// Название для показа пользователю: английское при английском языке и наличии `name_en`, иначе `name`.
+    pub fn display_name(&self) -> &str {
+        match &self.name_en {
+            Some(n) if crate::i18n::is_en() && !n.trim().is_empty() => n,
+            _ => &self.name,
+        }
+    }
+
+    /// Описание для показа пользователю: английское при английском языке и наличии `description_en`, иначе `description`.
+    pub fn display_description(&self) -> &str {
+        match &self.description_en {
+            Some(d) if crate::i18n::is_en() && !d.trim().is_empty() => d,
+            _ => &self.description,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -93,16 +118,16 @@ pub(crate) fn scan(v: &Value, out: &mut Vec<String>) -> Result<()> {
             let mut rest = s.as_str();
             while let Some(i) = rest.find("{{") {
                 let after = &rest[i + 2..];
-                let j = after.find("}}").ok_or_else(|| anyhow!("в `{s}` нет закрывающей }}}}"))?;
+                let j = after.find("}}").ok_or_else(|| anyhow!(tr!(format!("в `{s}` нет закрывающей }}}}"), format!("`{s}` has no closing }}}}"))))?;
                 let name = after[..j].trim_start_matches('?');
                 if !valid_var(name) {
-                    bail!("недопустимое имя переменной `{}` в `{s}`", &after[..j]);
+                    bail!("{}", tr!(format!("недопустимое имя переменной `{}` в `{s}`", &after[..j]), format!("invalid variable name `{}` in `{s}`", &after[..j])));
                 }
                 out.push(name.to_string());
                 rest = &after[j + 2..];
             }
             if rest.contains("}}") {
-                bail!("лишняя }}}} в `{s}`");
+                bail!("{}", tr!(format!("лишняя }}}} в `{s}`"), format!("unexpected }}}} in `{s}`")));
             }
         }
         Value::Array(a) => a.iter().try_for_each(|x| scan(x, out))?,
@@ -114,24 +139,24 @@ pub(crate) fn scan(v: &Value, out: &mut Vec<String>) -> Result<()> {
 
 impl Profile {
     pub fn parse(meta_yaml: &str, server_tpl: &str, client_tpl: &str) -> Result<Profile> {
-        let manifest: Manifest = serde_yaml_ng::from_str(meta_yaml).context("meta.yaml: ошибка разбора")?;
+        let manifest: Manifest = serde_yaml_ng::from_str(meta_yaml).context(tr!("meta.yaml: ошибка разбора", "meta.yaml: parse error"))?;
         if manifest.schema != SCHEMA {
-            bail!("meta.yaml: schema {} не поддерживается (нужна {SCHEMA})", manifest.schema);
+            bail!("{}", tr!(format!("meta.yaml: schema {} не поддерживается (нужна {SCHEMA})", manifest.schema), format!("meta.yaml: schema {} is not supported ({SCHEMA} required)", manifest.schema)));
         }
         if !valid_id(&manifest.id) {
-            bail!("meta.yaml: недопустимый id `{}` (a-z, 0-9, -, до 32 символов)", manifest.id);
+            bail!("{}", tr!(format!("meta.yaml: недопустимый id `{}` (a-z, 0-9, -, до 32 символов)", manifest.id), format!("meta.yaml: invalid id `{}` (a-z, 0-9, -, up to 32 characters)", manifest.id)));
         }
         if manifest.name.trim().is_empty() || manifest.name.chars().count() > 64 || manifest.name.chars().any(char::is_control) {
-            bail!("meta.yaml: недопустимое name");
+            bail!("{}", tr!("meta.yaml: недопустимое name", "meta.yaml: invalid name"));
         }
         if manifest.default_port == 0 {
             bail!("meta.yaml: default_port 0");
         }
         if let Some(k) = manifest.params.keys().find(|k| !valid_var(k) || k.contains('.')) {
-            bail!("meta.yaml: недопустимое имя параметра `{k}`");
+            bail!("{}", tr!(format!("meta.yaml: недопустимое имя параметра `{k}`"), format!("meta.yaml: invalid parameter name `{k}`")));
         }
         let parse_tpl = |what: &str, raw: &str| -> Result<Value> {
-            let v: Value = serde_json::from_str(raw).with_context(|| format!("{what}: не JSON"))?;
+            let v: Value = serde_json::from_str(raw).with_context(|| tr!(format!("{what}: не JSON"), format!("{what}: not JSON")))?;
             scan(&v, &mut Vec::new()).with_context(|| what.to_string())?;
             Ok(v)
         };
@@ -149,12 +174,12 @@ impl Profile {
 
     pub fn render_server(&self, vars: &Value) -> Result<Value> {
         render(&self.server_tpl, &with_params(vars, &self.manifest))
-            .with_context(|| format!("профиль {}: server.json.tpl", self.manifest.id))
+            .with_context(|| tr!(format!("профиль {}: server.json.tpl", self.manifest.id), format!("profile {}: server.json.tpl", self.manifest.id)))
     }
 
     pub fn render_client(&self, vars: &Value) -> Result<Value> {
         render(&self.client_tpl, &with_params(vars, &self.manifest))
-            .with_context(|| format!("профиль {}: client.json.tpl", self.manifest.id))
+            .with_context(|| tr!(format!("профиль {}: client.json.tpl", self.manifest.id), format!("profile {}: client.json.tpl", self.manifest.id)))
     }
 }
 
@@ -203,19 +228,19 @@ pub fn render(tpl: &Value, vars: &Value) -> Result<Value> {
         Value::String(s) => {
             if let Some((name, optional)) = exact_var(s) {
                 if optional {
-                    bail!("`{s}`: необязательная переменная допустима только как значение поля объекта");
+                    bail!("{}", tr!(format!("`{s}`: необязательная переменная допустима только как значение поля объекта"), format!("`{s}`: an optional variable is allowed only as an object field value")));
                 }
-                return lookup(vars, name).cloned().ok_or_else(|| anyhow!("нет переменной `{name}`"));
+                return lookup(vars, name).cloned().ok_or_else(|| anyhow!(tr!(format!("нет переменной `{name}`"), format!("no variable `{name}`"))));
             }
             let mut out = String::new();
             let mut rest = s.as_str();
             while let Some(i) = rest.find("{{") {
                 out.push_str(&rest[..i]);
                 let after = &rest[i + 2..];
-                let j = after.find("}}").ok_or_else(|| anyhow!("нет закрывающей }}}} в `{s}`"))?;
+                let j = after.find("}}").ok_or_else(|| anyhow!(tr!(format!("нет закрывающей }}}} в `{s}`"), format!("no closing }}}} in `{s}`"))))?;
                 let name = &after[..j];
-                let val = lookup(vars, name).ok_or_else(|| anyhow!("нет переменной `{name}`"))?;
-                out.push_str(&scalar_text(val).ok_or_else(|| anyhow!("переменная `{name}` не скаляр, в текст её не вставить"))?);
+                let val = lookup(vars, name).ok_or_else(|| anyhow!(tr!(format!("нет переменной `{name}`"), format!("no variable `{name}`"))))?;
+                out.push_str(&scalar_text(val).ok_or_else(|| anyhow!(tr!(format!("переменная `{name}` не скаляр, в текст её не вставить"), format!("variable `{name}` is not a scalar and cannot be inserted into text"))))?);
                 rest = &after[j + 2..];
             }
             out.push_str(rest);
@@ -225,17 +250,17 @@ pub fn render(tpl: &Value, vars: &Value) -> Result<Value> {
         Value::Object(m) if m.contains_key("$each") => {
             let keys: Vec<&str> = m.keys().map(String::as_str).collect();
             if keys.len() != 3 || !["$each", "as", "do"].iter().all(|k| keys.contains(k)) {
-                bail!("`$each` требует ровно ключи $each, as, do");
+                bail!("{}", tr!("`$each` требует ровно ключи $each, as, do", "`$each` requires exactly the keys $each, as, do"));
             }
-            let (Some(src), Some(alias)) = (m["$each"].as_str(), m["as"].as_str()) else { bail!("`$each` и `as` должны быть строками") };
+            let (Some(src), Some(alias)) = (m["$each"].as_str(), m["as"].as_str()) else { bail!("{}", tr!("`$each` и `as` должны быть строками", "`$each` and `as` must be strings")) };
             if !valid_var(alias) || alias.contains('.') {
-                bail!("недопустимое имя `as`: `{alias}`");
+                bail!("{}", tr!(format!("недопустимое имя `as`: `{alias}`"), format!("invalid `as` name: `{alias}`")));
             }
-            let items = lookup(vars, src).and_then(Value::as_array).ok_or_else(|| anyhow!("`$each`: `{src}` не список"))?;
+            let items = lookup(vars, src).and_then(Value::as_array).ok_or_else(|| anyhow!(tr!(format!("`$each`: `{src}` не список"), format!("`$each`: `{src}` is not a list"))))?;
             let mut out = Vec::new();
             for it in items {
                 let mut scope = vars.clone();
-                scope.as_object_mut().ok_or_else(|| anyhow!("переменные должны быть объектом"))?.insert(alias.into(), it.clone());
+                scope.as_object_mut().ok_or_else(|| anyhow!(tr!("переменные должны быть объектом", "variables must be an object")))?.insert(alias.into(), it.clone());
                 out.push(render(&m["do"], &scope)?);
             }
             Ok(Value::Array(out))
@@ -282,7 +307,7 @@ pub fn derive_password(secret: &str, profile_id: &str, fmt: PasswordFormat) -> S
 /// Пароль пользователя для протокола `p` (без ключа сервера).
 pub fn user_password(p: &Proto, u: &crate::state::User) -> Result<String> {
     let prof = get(p)?;
-    let secret = u.secret.as_deref().with_context(|| format!("у пользователя `{}` нет секрета для {}", u.name, prof.manifest.name))?;
+    let secret = u.secret.as_deref().with_context(|| tr!(format!("у пользователя `{}` нет секрета для {}", u.name, prof.manifest.display_name()), format!("user `{}` has no secret for {}", u.name, prof.manifest.display_name())))?;
     Ok(derive_password(secret, &prof.manifest.id, prof.manifest.password))
 }
 
@@ -335,7 +360,7 @@ pub fn get_in(p: &Proto, user_root: &std::path::Path) -> Result<Cow<'static, Pro
     }
     crate::userprofiles::load_installed_in(user_root, p.id())
         .map(|c| Cow::Owned(c.profile))
-        .with_context(|| format!("профиль `{}` не встроен и не установлен на этом компьютере (`eleutheria profile list`)", p.id()))
+        .with_context(|| tr!(format!("профиль `{}` не встроен и не установлен на этом компьютере (`eleutheria profile list`)", p.id()), format!("profile `{}` is neither built in nor installed on this computer (`eleutheria profile list`)", p.id())))
 }
 
 /// `hysteria2,tuic`, `all` -> список протоколов без повторов. Профиль должен существовать: опечатка не должна
@@ -346,9 +371,9 @@ pub fn parse_protocols(names: &[String]) -> Result<Vec<Proto>> {
         let found: Vec<Proto> = if n.eq_ignore_ascii_case("all") {
             Proto::self_contained().to_vec()
         } else {
-            let p = Proto::new(n).ok_or_else(|| anyhow!("недопустимое имя протокола `{n}` (a-z, 0-9, -)"))?;
+            let p = Proto::new(n).ok_or_else(|| anyhow!(tr!(format!("недопустимое имя протокола `{n}` (a-z, 0-9, -)"), format!("invalid protocol name `{n}` (a-z, 0-9, -)"))))?;
             get(&p).map_err(|_| {
-                anyhow!("неизвестный протокол `{n}`: встроенные hysteria2, tuic, ss2022, vless-ws, trojan, anytls, shadowtls (и `all` без vless-ws, ему нужен --cdn-host); сторонние ставятся командой `eleutheria profile install`")
+                anyhow!(tr!(format!("неизвестный протокол `{n}`: встроенные hysteria2, tuic, ss2022, vless-ws, trojan, anytls, shadowtls (и `all` без vless-ws, ему нужен --cdn-host); сторонние ставятся командой `eleutheria profile install`"), format!("unknown protocol `{n}`: built-in ones are hysteria2, tuic, ss2022, vless-ws, trojan, anytls, shadowtls (and `all`, which excludes vless-ws as it needs --cdn-host); third-party ones are installed with `eleutheria profile install`")))
             })?;
             vec![p]
         };
@@ -375,14 +400,14 @@ pub fn server_vars(p: &Proto, st: &State, ps: &ProtoState, cert_dir: &str) -> Re
     }
     let sni = st.protocols.tls.as_ref().map(|t| t.sni.clone()).unwrap_or_default();
     if prof.manifest.needs_cert && sni.is_empty() {
-        bail!("для {} нужен сертификат, а его в состоянии сервера нет", prof.manifest.name);
+        bail!("{}", tr!(format!("для {} нужен сертификат, а его в состоянии сервера нет", prof.manifest.display_name()), format!("a certificate is required for {}, but the server state has none", prof.manifest.display_name())));
     }
     if prof.manifest.server_key.is_some() && ps.server_key.as_deref().unwrap_or("").is_empty() {
-        bail!("для {} в состоянии сервера нет ключа сервера", prof.manifest.name);
+        bail!("{}", tr!(format!("для {} в состоянии сервера нет ключа сервера", prof.manifest.display_name()), format!("the server state has no server key for {}", prof.manifest.display_name())));
     }
     let ws_path = ps.ws_path.clone().unwrap_or_default();
     if *p == Proto::VlessWs && !crate::client::profile::valid_ws_path(&ws_path) {
-        bail!("для {} нет допустимого пути WebSocket в состоянии сервера", prof.manifest.name);
+        bail!("{}", tr!(format!("для {} нет допустимого пути WebSocket в состоянии сервера", prof.manifest.display_name()), format!("the server state has no valid WebSocket path for {}", prof.manifest.display_name())));
     }
     Ok(json!({
         "port": ps.port,

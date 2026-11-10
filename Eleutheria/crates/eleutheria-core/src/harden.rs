@@ -56,26 +56,26 @@ pub async fn run(
     let mut notes = Vec::new();
 
     if o.ssh_key {
-        report("Настраиваю вход по SSH-ключу…");
+        report(crate::tr!("Настраиваю вход по SSH-ключу…", "Setting up SSH key login…"));
         match ssh_key_step(ssh, ctx, make_verifier, report).await {
             Ok(m) => notes.push(note(true, m)),
-            Err(e) => notes.push(note(false, format!("SSH-ключ: {e:#}"))),
+            Err(e) => notes.push(note(false, crate::tr!(format!("SSH-ключ: {e:#}"), format!("SSH key: {e:#}")))),
         }
     }
     if o.bbr {
-        report("Включаю BBR…");
+        report(crate::tr!("Включаю BBR…", "Enabling BBR…"));
         let mut tx = Tx::new();
         match enable_bbr(ssh, &mut tx).await {
             Ok(Some(m)) => notes.push(note(true, m)),
-            Ok(None) => notes.push(note(false, "BBR: ядро сервера не поддерживает (часто бывает на OpenVZ/LXC), пропущено")),
+            Ok(None) => notes.push(note(false, crate::tr!("BBR: ядро сервера не поддерживает (часто бывает на OpenVZ/LXC), пропущено", "BBR: not supported by the server kernel (common on OpenVZ/LXC), skipped"))),
             Err(e) => {
                 tx.rollback(ssh, report).await;
-                notes.push(note(false, format!("BBR: {e:#}, откатил")));
+                notes.push(note(false, crate::tr!(format!("BBR: {e:#}, откатил"), format!("BBR: {e:#}, rolled back"))));
             }
         }
     }
     if o.firewall {
-        report("Настраиваю фаервол…");
+        report(crate::tr!("Настраиваю фаервол…", "Configuring the firewall…"));
         let mut tx = Tx::new();
         match firewall(ssh, ctx, &mut tx).await {
             Ok(m) => {
@@ -84,13 +84,13 @@ pub async fn run(
                     Ok(()) => notes.push(note(true, m)),
                     Err(e) => {
                         tx.rollback(ssh, report).await;
-                        notes.push(note(false, format!("Фаервол: после включения SSH недоступен ({e:#}), откатил")));
+                        notes.push(note(false, crate::tr!(format!("Фаервол: после включения SSH недоступен ({e:#}), откатил"), format!("Firewall: SSH became unreachable after enabling it ({e:#}), rolled back"))));
                     }
                 }
             }
             Err(e) => {
                 tx.rollback(ssh, report).await;
-                notes.push(note(false, format!("Фаервол: {e:#}, откатил")));
+                notes.push(note(false, crate::tr!(format!("Фаервол: {e:#}, откатил"), format!("Firewall: {e:#}, rolled back"))));
             }
         }
     }
@@ -114,7 +114,7 @@ async fn ssh_key_step(
     }
     if let Err(e) = verify_key_login(ctx, &key.pem, mv).await {
         tx_key.rollback(ssh, report).await;
-        bail!("вход по ключу не заработал ({e:#}). Ключ убран, пароль не трогал");
+        bail!("{}", crate::tr!(format!("вход по ключу не заработал ({e:#}). Ключ убран, пароль не трогал"), format!("key login did not work ({e:#}). Key removed, password left untouched")));
     }
 
     let mut tx_pw = Tx::new();
@@ -125,9 +125,9 @@ async fn ssh_key_step(
     .await;
     if let Err(e) = res {
         tx_pw.rollback(ssh, report).await;
-        bail!("не удалось безопасно отключить пароль ({e:#}). Откатил: пароль работает как раньше, ключ установлен");
+        bail!("{}", crate::tr!(format!("не удалось безопасно отключить пароль ({e:#}). Откатил: пароль работает как раньше, ключ установлен"), format!("could not safely disable password login ({e:#}). Rolled back: password login works as before, key is installed")));
     }
-    Ok("вход по ключу (ключ в защищённом хранилище), вход по паролю отключён".to_string())
+    Ok(crate::tr!("вход по ключу (ключ в защищённом хранилище), вход по паролю отключён", "key login (key in secure storage), password login disabled").to_string())
 }
 
 async fn install_ssh_key(ssh: &Ssh, pubkey: &str, tx: &mut Tx) -> Result<()> {
@@ -138,7 +138,7 @@ async fn install_ssh_key(ssh: &Ssh, pubkey: &str, tx: &mut Tx) -> Result<()> {
     if !present {
         ssh.run_ok(&format!("printf '%s\\n' {q} >> ~/.ssh/authorized_keys")).await?;
         tx.push(
-            "убрать добавленный SSH-ключ",
+            crate::tr!("убрать добавленный SSH-ключ", "remove the added SSH key"),
             format!(
                 "grep -vxF {q} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.eleutheria-tmp; \
                  cat ~/.ssh/authorized_keys.eleutheria-tmp > ~/.ssh/authorized_keys; rm -f ~/.ssh/authorized_keys.eleutheria-tmp"
@@ -159,7 +159,7 @@ async fn verify_key_login(ctx: &HardenCtx, pem: &str, mv: VerifierFactory<'_>) -
     let out = s.run("echo ok").await?;
     let _ = s.close().await;
     if out.stdout_str() != "ok" {
-        bail!("неожиданный ответ сервера при проверке входа");
+        bail!("{}", crate::tr!("неожиданный ответ сервера при проверке входа", "unexpected server response while verifying login"));
     }
     Ok(())
 }
@@ -177,18 +177,18 @@ async fn disable_password_auth(ssh: &Ssh, tx: &mut Tx) -> Result<()> {
         .run("grep -Eqs '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/' /etc/ssh/sshd_config")
         .await?;
     if inc.code != 0 {
-        bail!("основной sshd_config не подключает sshd_config.d, а править его вручную я не рискую");
+        bail!("{}", crate::tr!("основной sshd_config не подключает sshd_config.d, а править его вручную я не рискую", "the main sshd_config does not include sshd_config.d, and I will not risk editing it by hand"));
     }
     ssh.run_ok("mkdir -p /etc/ssh/sshd_config.d").await?;
     ssh.upload(SSHD_DROPIN, SSHD_CONF.as_bytes(), 0o644).await?;
     tx.push(
-        "вернуть прежние настройки sshd",
+        crate::tr!("вернуть прежние настройки sshd", "restore the previous sshd settings"),
         format!("rm -f {SSHD_DROPIN}; {SSHD} -t && ({SSHD_RELOAD})"),
     );
 
     let t = ssh.run(&format!("{SSHD} -t")).await?;
     if t.code != 0 {
-        bail!("sshd отклонил конфигурацию: {}", t.stderr_str());
+        bail!("{}", crate::tr!(format!("sshd отклонил конфигурацию: {}", t.stderr_str()), format!("sshd rejected the configuration: {}", t.stderr_str())));
     }
     ssh.run_ok(SSHD_RELOAD).await?;
 
@@ -196,7 +196,7 @@ async fn disable_password_auth(ssh: &Ssh, tx: &mut Tx) -> Result<()> {
         .run_ok(&format!("{SSHD} -T | grep -i '^passwordauthentication' || true"))
         .await?;
     if eff.trim().to_lowercase() != "passwordauthentication no" {
-        bail!("другой конфиг sshd переопределяет PasswordAuthentication (сейчас: `{}`)", eff.trim());
+        bail!("{}", crate::tr!(format!("другой конфиг sshd переопределяет PasswordAuthentication (сейчас: `{}`)", eff.trim()), format!("another sshd config overrides PasswordAuthentication (currently: `{}`)", eff.trim())));
     }
     Ok(())
 }
@@ -206,7 +206,7 @@ async fn disable_password_auth(ssh: &Ssh, tx: &mut Tx) -> Result<()> {
 async fn enable_bbr(ssh: &Ssh, tx: &mut Tx) -> Result<Option<String>> {
     let cur = ssh.run("sysctl -n net.ipv4.tcp_congestion_control").await?.stdout_str();
     if cur == "bbr" {
-        return Ok(Some("BBR уже включён".into()));
+        return Ok(Some(crate::tr!("BBR уже включён", "BBR is already enabled").into()));
     }
     let _ = ssh.run("modprobe tcp_bbr 2>/dev/null").await?;
     let avail = ssh.run("sysctl -n net.ipv4.tcp_available_congestion_control").await?.stdout_str();
@@ -215,17 +215,17 @@ async fn enable_bbr(ssh: &Ssh, tx: &mut Tx) -> Result<Option<String>> {
     }
     ssh.upload(BBR_CONF_PATH, b"net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n", 0o644)
         .await?;
-    tx.push("убрать настройку BBR", format!("rm -f {BBR_CONF_PATH}"));
+    tx.push(crate::tr!("убрать настройку BBR", "remove the BBR setting"), format!("rm -f {BBR_CONF_PATH}"));
     ssh.run_ok(&format!("sysctl -p {BBR_CONF_PATH}")).await?;
     if ssh.run("sysctl -n net.ipv4.tcp_congestion_control").await?.stdout_str() != "bbr" {
-        bail!("BBR не применился");
+        bail!("{}", crate::tr!("BBR не применился", "BBR was not applied"));
     }
     // чтобы модуль грузился после перезагрузки
     if ssh.run("test -d /etc/modules-load.d").await?.code == 0 {
         ssh.upload(BBR_MODULE_PATH, b"tcp_bbr\n", 0o644).await?;
-        tx.push("убрать автозагрузку tcp_bbr", format!("rm -f {BBR_MODULE_PATH}"));
+        tx.push(crate::tr!("убрать автозагрузку tcp_bbr", "remove tcp_bbr autoload"), format!("rm -f {BBR_MODULE_PATH}"));
     }
-    Ok(Some("BBR включён".into()))
+    Ok(Some(crate::tr!("BBR включён", "BBR enabled").into()))
 }
 
 // ---------- ufw ----------
@@ -245,7 +245,7 @@ async fn firewall(ssh: &Ssh, ctx: &HardenCtx, tx: &mut Tx) -> Result<String> {
     let active = installed
         && ssh.run("ufw status | grep -q '^Status: active'").await?.code == 0;
     if active {
-        return Ok("ufw уже активен, правила не менял".into());
+        return Ok(crate::tr!("ufw уже активен, правила не менял", "ufw is already active, rules left unchanged").into());
     }
 
     let listening = ssh.run_ok("ss -ltnH || true").await?;
@@ -254,8 +254,9 @@ async fn firewall(ssh: &Ssh, ctx: &HardenCtx, tx: &mut Tx) -> Result<String> {
         .filter(|p| *p != ctx.ssh_port && *p != ctx.vpn_port && !ctx.extra_ports.iter().any(|(ep, t)| ep == p && *t == "tcp"))
         .collect();
     if !others.is_empty() {
-        return Ok(format!(
-            "ufw не включал: на сервере слушают другие порты {others:?}, фаервол мог бы их закрыть"
+        return Ok(crate::tr!(
+            format!("ufw не включал: на сервере слушают другие порты {others:?}, фаервол мог бы их закрыть"),
+            format!("ufw not enabled: the server has other listening ports {others:?} that the firewall could close")
         ));
     }
 
@@ -269,10 +270,13 @@ async fn firewall(ssh: &Ssh, ctx: &HardenCtx, tx: &mut Tx) -> Result<String> {
         "ufw allow {sp}/tcp && ufw allow {vp}/tcp{extra} && ufw default deny incoming && ufw default allow outgoing"
     ))
     .await?;
-    tx.push("выключить ufw", "ufw --force disable");
+    tx.push(crate::tr!("выключить ufw", "disable ufw"), "ufw --force disable");
     ssh.run_ok("ufw --force enable").await?;
     let more: String = ctx.extra_ports.iter().map(|(p, t)| format!(", {p}/{t}")).collect();
-    Ok(format!("ufw включён: открыты {sp}/tcp (SSH) и {vp}/tcp (VPN){more}, остальное закрыто"))
+    Ok(crate::tr!(
+        format!("ufw включён: открыты {sp}/tcp (SSH) и {vp}/tcp (VPN){more}, остальное закрыто"),
+        format!("ufw enabled: {sp}/tcp (SSH) and {vp}/tcp (VPN){more} are open, everything else is closed")
+    ))
 }
 
 #[cfg(test)]

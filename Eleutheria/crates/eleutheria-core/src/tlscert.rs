@@ -22,11 +22,11 @@ pub fn spki_pin(spki_der: &[u8]) -> String {
 
 /// Новый ключ ECDSA P-256 и сертификат на 10 лет для имени `sni`.
 pub fn generate(sni: &str) -> Result<Cert> {
-    let key = KeyPair::generate().context("не удалось создать ключ")?;
-    let mut params = CertificateParams::new(vec![sni.to_string()]).context("недопустимое имя для сертификата")?;
+    let key = KeyPair::generate().context(crate::tr!("не удалось создать ключ", "failed to create a key"))?;
+    let mut params = CertificateParams::new(vec![sni.to_string()]).context(crate::tr!("недопустимое имя для сертификата", "invalid certificate name"))?;
     params.not_before = rcgen::date_time_ymd(2024, 1, 1);
     params.not_after = rcgen::date_time_ymd(2044, 1, 1);
-    let cert = params.self_signed(&key).context("не удалось выпустить сертификат")?;
+    let cert = params.self_signed(&key).context(crate::tr!("не удалось выпустить сертификат", "failed to issue a certificate"))?;
     Ok(Cert {
         cert_pem: cert.pem(),
         key_pem: key.serialize_pem(),
