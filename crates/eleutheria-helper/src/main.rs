@@ -95,6 +95,7 @@ mod platform {
 
     use anyhow::Result;
     use eleutheria_core::ipc;
+    use eleutheria_core::tr;
     use eleutheria_core::winhelper::{self, SERVICE_NAME};
     use eleutheria_helper::Helper;
     use windows_service::service::{
