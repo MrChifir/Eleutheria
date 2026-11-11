@@ -9,7 +9,7 @@
 Установка сервера по SSH, обход блокировок на VLESS + Reality, клиент с системным туннелем,
 авто-выбором сервера и проверкой категорий трафика. Всё в одном приложении, без сторонних сервисов.
 
-![Версия](https://img.shields.io/badge/версия-1.0.1-3b82f6)
+![Версия](https://img.shields.io/badge/версия-1.1.0-3b82f6)
 ![Лицензия](https://img.shields.io/badge/лицензия-GPL--3.0--or--later-informational)
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)

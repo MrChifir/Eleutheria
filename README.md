@@ -9,7 +9,7 @@
 Server setup over SSH, censorship circumvention with VLESS + Reality, a client with a system-wide tunnel,
 automatic server selection and per-category traffic checks. All in one app, no third-party services.
 
-![Version](https://img.shields.io/badge/version-1.0.1-3b82f6)
+![Version](https://img.shields.io/badge/version-1.1.0-3b82f6)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-informational)
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust)
 ![Tauri](https://img.shields.io/badge/Tauri-2-24c8db?logo=tauri&logoColor=white)
