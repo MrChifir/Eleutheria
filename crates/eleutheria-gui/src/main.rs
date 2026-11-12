@@ -306,7 +306,7 @@ async fn update_server(app: AppHandle, conn: SshConn) -> Result<ServerUpdateDto,
 /// Список партнёрских хостингов для блока «Нет сервера?».
 #[tauri::command]
 fn partners_list() -> Vec<Partner> {
-    partners::PARTNERS.to_vec()
+    partners::list().to_vec()
 }
 
 /// Открывает партнёрскую ссылку в браузере по id из белого списка. Произвольный адрес не принимается.

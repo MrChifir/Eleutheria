@@ -19,11 +19,9 @@ automatic server selection and per-category traffic checks. All in one app, no t
 
 <br>
 
-<img src="docs/screenshots/home-connected.png" alt="Eleutheria main screen: connected through the system VPN" width="860">
+<img src="docs/screenshots/en/home-connected.png" alt="Eleutheria main screen: connected through the system VPN" width="860">
 
 </div>
-
-> The screenshots show the Russian-language interface.
 
 ---
 
@@ -84,7 +82,7 @@ The interface has four sections: **Home**, **Server**, **Updates** and **Guide**
 
 ### Home: connect with one button
 
-<img src="docs/screenshots/home-disconnected.png" alt="Home screen, VPN disconnected" width="860">
+<img src="docs/screenshots/en/home-disconnected.png" alt="Home screen, VPN disconnected" width="860">
 
 Everything you need for daily use lives here:
 
@@ -98,7 +96,7 @@ Everything you need for daily use lives here:
 
 ### Connected: traffic categories under control
 
-<img src="docs/screenshots/home-connected.png" alt="Home screen, VPN connected, traffic categories" width="860">
+<img src="docs/screenshots/en/home-connected.png" alt="Home screen, VPN connected, traffic categories" width="860">
 
 When the tunnel is up, the "Traffic categories" card shows live checks:
 
@@ -111,11 +109,11 @@ If a site refuses the server's exit IP, only that category moves to another path
 
 ### Server: install a VPN without a terminal
 
-<img src="docs/screenshots/server.png" alt="Server tab" width="860">
+<img src="docs/screenshots/en/server.png" alt="Server tab" width="860">
 
 A one-window setup wizard:
 
-1. **No server?** Quick links to partner hosting providers (VDSina, Fornex, IHC, Justhost, Nodex).
+1. **No server?** Quick links to partner hosting providers (NootHost, MangoHost, Serva, Unihost, VPS.one).
    The app only opens addresses from the built-in list.
 2. **Server access:** address, SSH user and port, password or key path. The "Check server" button shows the
    fingerprint that you should compare with the one from your hosting provider.
@@ -124,7 +122,7 @@ A one-window setup wizard:
 
 ### Installation result: link and QR code
 
-<img src="docs/screenshots/server-provisioned.png" alt="Installation result: report, link and QR code" width="860">
+<img src="docs/screenshots/en/server-provisioned.png" alt="Installation result: report, link and QR code" width="860">
 
 After installation the app shows a report for every step, the client link with a "Copy" button and a QR code
 for your phone. Below are server controls: protocols (switch on and off on the fly), users
@@ -132,7 +130,7 @@ for your phone. Below are server controls: protocols (switch on and off on the f
 
 ### Updates: signed, and usable without GitHub access
 
-<img src="docs/screenshots/updates.png" alt="Updates tab" width="860">
+<img src="docs/screenshots/en/updates.png" alt="Updates tab" width="860">
 
 A dedicated **Updates** tab. The app checks for new versions once a day and on demand. The downloaded file is
 verified against its signature before any change is made to the system. If neither GitHub nor the mirror is reachable,
@@ -140,13 +138,13 @@ you can pick the update file and its `.sig` manually. If an outdated helper is i
 
 ### Guide and tour: the app explains itself
 
-<img src="docs/screenshots/guide.png" alt="Guide section: in-app help" width="860">
+<img src="docs/screenshots/en/guide.png" alt="Guide section: in-app help" width="860">
 
 The **Guide** section collects the help: where to start, what each section does, how the connection modes differ,
 how traffic categories work, what matters for security, and answers to common questions ("The Connect button is
 disabled", "The server key has changed" and others).
 
-<img src="docs/screenshots/tour.png" alt="Step-by-step tour: traffic categories highlighted" width="860">
+<img src="docs/screenshots/en/tour.png" alt="Step-by-step tour: traffic categories highlighted" width="860">
 
 The **"Take the tour"** button starts an interactive 17-step walkthrough: the app switches sections by itself,
 highlights the relevant block and briefly explains what it does. Control the tour with the buttons or the `←` `→`
@@ -216,8 +214,8 @@ The "Server" tab has a block with partner hosting providers. You can rent a VPS 
 its address in the form. If you already have a server, you do not need this block: the VPN installation works with any
 Ubuntu or Debian VPS.
 
-The list of providers is defined in `crates/eleutheria-app/src/partners.rs`. The app only opens addresses from this list.
-The links are affiliate links: the project author may receive a commission through them, and you get a 10% discount.
+The list of providers is defined in `crates/eleutheria-app/src/partners.rs` (a separate list for each interface language). The app only opens addresses from this list.
+The links are affiliate links: the project author may receive a commission through them.
 
 ## Server installation
 

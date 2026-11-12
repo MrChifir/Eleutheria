@@ -283,6 +283,7 @@ async function removeUser(name) {
 
 export function rerender() {
   render();
+  initPartners(say); // список хостингов зависит от языка
 }
 
 export function initServer() {
